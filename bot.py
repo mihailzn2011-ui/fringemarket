@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
+import asyncio
 import os
 from dotenv import load_dotenv
 from db import DBManager
@@ -59,24 +60,70 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
+    # Обычный текстовый канал
     if message.channel.id == WATCH_CHANNEL and not message.author.bot:
-        review_channel = bot.get_channel(REVIEW_CHANNEL)
-        if review_channel:
-            embed = discord.Embed(
-                title="📋 Новая заявка",
-                description=message.content or "*Без текста*",
-                color=0x5865F2
-            )
-            embed.set_author(name=str(message.author), icon_url=message.author.display_avatar.url)
-            embed.set_footer(text=f"ID автора: {message.author.id}")
+        await forward_to_review(message)
 
-            if message.attachments:
-                embed.set_image(url=message.attachments[0].url)
-
-            view = ReviewView(author_id=message.author.id)
-            await review_channel.send(embed=embed, view=view)
+    # Сообщение в треде форума
+    if isinstance(message.channel, discord.Thread) and not message.author.bot:
+        if message.channel.parent_id == WATCH_CHANNEL:
+            # Только первое сообщение в треде (создание публикации)
+            if message.channel.starter_message and message.id == message.channel.starter_message.id:
+                await forward_to_review(message)
 
     await bot.process_commands(message)
+
+
+@bot.event
+async def on_thread_create(thread: discord.Thread):
+    """Срабатывает когда создаётся новый тред в форуме."""
+    if thread.parent_id == WATCH_CHANNEL:
+        await asyncio.sleep(1)  # ждём пока появится стартовое сообщение
+        try:
+            starter = await thread.fetch_message(thread.id)
+        except Exception:
+            starter = None
+
+        review_channel = bot.get_channel(REVIEW_CHANNEL)
+        if not review_channel:
+            return
+
+        author = thread.owner
+        content = starter.content if starter else ""
+        attachment_url = starter.attachments[0].url if starter and starter.attachments else None
+
+        embed = discord.Embed(
+            title=f"📋 {thread.name}",
+            description=content or "*Без текста*",
+            color=0x5865F2
+        )
+        if author:
+            embed.set_author(name=str(author), icon_url=author.display_avatar.url)
+        embed.set_footer(text=f"ID автора: {thread.owner_id} | Тред: {thread.id}")
+        if attachment_url:
+            embed.set_image(url=attachment_url)
+
+        view = ReviewView(author_id=thread.owner_id)
+        await review_channel.send(embed=embed, view=view)
+
+
+async def forward_to_review(message: discord.Message):
+    review_channel = bot.get_channel(REVIEW_CHANNEL)
+    if not review_channel:
+        return
+
+    embed = discord.Embed(
+        title="📋 Новая заявка",
+        description=message.content or "*Без текста*",
+        color=0x5865F2
+    )
+    embed.set_author(name=str(message.author), icon_url=message.author.display_avatar.url)
+    embed.set_footer(text=f"ID автора: {message.author.id}")
+    if message.attachments:
+        embed.set_image(url=message.attachments[0].url)
+
+    view = ReviewView(author_id=message.author.id)
+    await review_channel.send(embed=embed, view=view)
 
 
 @bot.tree.command(name="выдать", description="Выдать баллы игроку вручную")
