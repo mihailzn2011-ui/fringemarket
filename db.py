@@ -2,7 +2,7 @@ import os
 from supabase import create_client, Client
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")  # sb_secret_... ключ
 
 
 class DBManager:
@@ -11,7 +11,7 @@ class DBManager:
 
     def get_points(self, user_id: int) -> int:
         try:
-            res = self.client.table("points").select("points").eq("user_id", user_id).execute()
+            res = self.client.table("points").select("points").eq("user_id", str(user_id)).execute()
             if res.data:
                 return res.data[0]["points"]
             return 0
@@ -21,11 +21,18 @@ class DBManager:
 
     def set_points(self, user_id: int, points: int, username: str = ""):
         try:
-            existing = self.client.table("points").select("user_id").eq("user_id", user_id).execute()
+            existing = self.client.table("points").select("user_id").eq("user_id", str(user_id)).execute()
             if existing.data:
-                self.client.table("points").update({"points": points, "username": username}).eq("user_id", user_id).execute()
+                self.client.table("points").update({
+                    "points": points,
+                    "username": username
+                }).eq("user_id", str(user_id)).execute()
             else:
-                self.client.table("points").insert({"user_id": user_id, "username": username, "points": points}).execute()
+                self.client.table("points").insert({
+                    "user_id": str(user_id),
+                    "username": username,
+                    "points": points
+                }).execute()
         except Exception as e:
             print(f"set_points error: {e}")
 
