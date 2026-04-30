@@ -22,6 +22,22 @@ REVIEW_CHANNEL = 1499110318117486654
 WARN_ANNOUNCE_CHANNEL = 1499106932752126107
 PROMOTION_CHANNEL = 1499106965173960815
 
+# Salary application channels
+SALARY_FORUM = 1499421059810726108
+SALARY_REVIEW = 1499421416658047034
+
+# Day off application channels
+DAYOFF_FORUM = 1499421830421807104
+DAYOFF_REVIEW = 1499422048265437385
+DAYOFF_ROLE = 1499106627918233751
+
+# Promotion application channels
+PROMO_APP_FORUM = 1499422806365048902
+PROMO_APP_REVIEW = 1499422949424238592
+
+# Leaderboard channel
+LEADERBOARD_CHANNEL = 1499106986330165329
+
 # Warn role IDs
 WARN_ROLES = [
     1499106669278400642,
@@ -56,6 +72,7 @@ BONUS_POINTS_ROLE = 1499106655802097795
 async def on_ready():
     print(f"Бот {bot.user} запущен!")
     await bot.tree.sync()
+    await update_leaderboard()  # Обновляем лидерборд при старте
 
 
 @bot.event
@@ -72,9 +89,21 @@ async def on_message(message):
 
 @bot.event
 async def on_thread_create(thread: discord.Thread):
-    if thread.parent_id != WATCH_CHANNEL:
-        return
+    # Заявки на баллы
+    if thread.parent_id == WATCH_CHANNEL:
+        await handle_points_thread(thread)
+    # Заявки на зарплату
+    elif thread.parent_id == SALARY_FORUM:
+        await handle_salary_thread(thread)
+    # Заявки на отгул
+    elif thread.parent_id == DAYOFF_FORUM:
+        await handle_dayoff_thread(thread)
+    # Заявки на повышение
+    elif thread.parent_id == PROMO_APP_FORUM:
+        await handle_promotion_thread(thread)
 
+
+async def handle_points_thread(thread: discord.Thread):
     await asyncio.sleep(1.5)
 
     try:
@@ -102,6 +131,99 @@ async def on_thread_create(thread: discord.Thread):
         embed.set_image(url=attachment_url)
 
     view = ReviewView(author_id=thread.owner_id, source_thread_id=thread.id)
+    await review_channel.send(embed=embed, view=view)
+
+
+async def handle_salary_thread(thread: discord.Thread):
+    await asyncio.sleep(1.5)
+
+    try:
+        starter = await thread.fetch_message(thread.id)
+    except Exception:
+        starter = None
+
+    review_channel = bot.get_channel(SALARY_REVIEW)
+    if not review_channel:
+        return
+
+    author = thread.owner
+    content = starter.content if starter else ""
+    attachment_url = starter.attachments[0].url if starter and starter.attachments else None
+
+    embed = discord.Embed(
+        title=f"💰 Заявка на зарплату: {thread.name}",
+        description=content or "*Без текста*",
+        color=0xF1C40F
+    )
+    if author:
+        embed.set_author(name=str(author), icon_url=author.display_avatar.url)
+    embed.set_footer(text=f"ID автора: {thread.owner_id} | Тред: {thread.id}")
+    if attachment_url:
+        embed.set_image(url=attachment_url)
+
+    view = SalaryReviewView(author_id=thread.owner_id, source_thread_id=thread.id)
+    await review_channel.send(embed=embed, view=view)
+
+
+async def handle_dayoff_thread(thread: discord.Thread):
+    await asyncio.sleep(1.5)
+
+    try:
+        starter = await thread.fetch_message(thread.id)
+    except Exception:
+        starter = None
+
+    review_channel = bot.get_channel(DAYOFF_REVIEW)
+    if not review_channel:
+        return
+
+    author = thread.owner
+    content = starter.content if starter else ""
+    attachment_url = starter.attachments[0].url if starter and starter.attachments else None
+
+    embed = discord.Embed(
+        title=f"🏖️ Заявка на отгул: {thread.name}",
+        description=content or "*Без текста*",
+        color=0x3498DB
+    )
+    if author:
+        embed.set_author(name=str(author), icon_url=author.display_avatar.url)
+    embed.set_footer(text=f"ID автора: {thread.owner_id} | Тред: {thread.id}")
+    if attachment_url:
+        embed.set_image(url=attachment_url)
+
+    view = DayoffReviewView(author_id=thread.owner_id, source_thread_id=thread.id)
+    await review_channel.send(embed=embed, view=view)
+
+
+async def handle_promotion_thread(thread: discord.Thread):
+    await asyncio.sleep(1.5)
+
+    try:
+        starter = await thread.fetch_message(thread.id)
+    except Exception:
+        starter = None
+
+    review_channel = bot.get_channel(PROMO_APP_REVIEW)
+    if not review_channel:
+        return
+
+    author = thread.owner
+    content = starter.content if starter else ""
+    attachment_url = starter.attachments[0].url if starter and starter.attachments else None
+
+    embed = discord.Embed(
+        title=f"⬆️ Заявка на повышение: {thread.name}",
+        description=content or "*Без текста*",
+        color=0x9B59B6
+    )
+    if author:
+        embed.set_author(name=str(author), icon_url=author.display_avatar.url)
+    embed.set_footer(text=f"ID автора: {thread.owner_id} | Тред: {thread.id}")
+    if attachment_url:
+        embed.set_image(url=attachment_url)
+
+    view = PromotionAppReviewView(author_id=thread.owner_id, source_thread_id=thread.id)
     await review_channel.send(embed=embed, view=view)
 
 
@@ -188,6 +310,8 @@ async def give_points(interaction: discord.Interaction, игрок: discord.Memb
     embed.add_field(name="Новый баланс", value=f"{new_total} 🪙", inline=True)
     embed.set_footer(text=f"Выдал: {interaction.user}")
     await interaction.response.send_message(embed=embed)
+    
+    await update_leaderboard()
 
 
 @bot.tree.command(name="выдатьварн", description="Выдать варн игроку")
@@ -276,6 +400,8 @@ async def remove_points(interaction: discord.Interaction, игрок: discord.Me
     await bot.get_channel(REVIEW_CHANNEL).send(embed=embed_review)
 
     await interaction.followup.send(f"✅ Снято **{количество} 🪙** у {игрок.mention}. Новый баланс: **{new_total} 🪙**", ephemeral=True)
+    
+    await update_leaderboard()
 
 
 @bot.tree.command(name="выдатьповышение", description="Повысить игрока")
@@ -318,6 +444,13 @@ async def give_promotion(interaction: discord.Interaction, игрок: discord.M
         )
 
     await interaction.followup.send(f"✅ {игрок.mention} повышен до **{new_role.mention if new_role else STAFF_NAMES[current_idx + 1]}**!", ephemeral=True)
+
+
+@bot.tree.command(name="обновитьлидерборд", description="Обновить таблицу баллов вручную")
+async def update_leaderboard_command(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    await update_leaderboard()
+    await interaction.followup.send("✅ Таблица баллов обновлена!", ephemeral=True)
 
 
 # ─── VIEWS ────────────────────────────────────────────────────────────────────
@@ -460,6 +593,8 @@ class AccrualModal(discord.ui.Modal, title="Зачисление баллов"):
         )
 
         await interaction.followup.send("✅ Баллы начислены!", ephemeral=True)
+        
+        await update_leaderboard()
 
 
 # ─── SHOP ─────────────────────────────────────────────────────────────────────
@@ -642,6 +777,8 @@ async def deduct_and_notify(interaction, member, cost, item_name, description, r
         admin_name=str(interaction.user)
     )
 
+    await update_leaderboard()
+
     return True
 
 
@@ -777,6 +914,375 @@ async def disable_buttons(message: discord.Message):
         await message.edit(view=discord.ui.View())
     except Exception:
         pass
+
+
+# ─── SALARY APPLICATION VIEWS ─────────────────────────────────────────────────
+
+class SalaryReviewView(discord.ui.View):
+    def __init__(self, author_id: int, source_thread_id: int):
+        super().__init__(timeout=None)
+        self.author_id = author_id
+        self.source_thread_id = source_thread_id
+
+    @discord.ui.button(label="✅ Одобрить", style=discord.ButtonStyle.success)
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+
+        guild = interaction.guild
+        member = guild.get_member(self.author_id)
+
+        # Уведомление в треде
+        await notify_in_thread(
+            SALARY_FORUM,
+            self.source_thread_id,
+            self.author_id,
+            approved=True,
+            title="✅ Заявка на зарплату одобрена",
+            details="Для выдачи зарплаты обратитесь к администрации.",
+            admin_name=str(interaction.user)
+        )
+
+        await disable_buttons(interaction.message)
+        await interaction.followup.send("✅ Заявка на зарплату одобрена.", ephemeral=True)
+
+    @discord.ui.button(label="❌ Отклонить", style=discord.ButtonStyle.danger)
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = SalaryRejectModal(
+            author_id=self.author_id,
+            review_message=interaction.message,
+            source_thread_id=self.source_thread_id
+        )
+        await interaction.response.send_modal(modal)
+
+
+class SalaryRejectModal(discord.ui.Modal, title="Причина отклонения"):
+    reason = discord.ui.TextInput(label="Причина", style=discord.TextStyle.paragraph)
+
+    def __init__(self, author_id: int, review_message: discord.Message, source_thread_id: int):
+        super().__init__()
+        self.author_id = author_id
+        self.review_message = review_message
+        self.source_thread_id = source_thread_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        await notify_in_thread(
+            SALARY_FORUM,
+            self.source_thread_id,
+            self.author_id,
+            approved=False,
+            title="❌ Заявка на зарплату отклонена",
+            details=str(self.reason),
+            admin_name=str(interaction.user)
+        )
+
+        await disable_buttons(self.review_message)
+        await interaction.followup.send("✅ Заявка отклонена.", ephemeral=True)
+
+
+# ─── DAY OFF APPLICATION VIEWS ────────────────────────────────────────────────
+
+class DayoffReviewView(discord.ui.View):
+    def __init__(self, author_id: int, source_thread_id: int):
+        super().__init__(timeout=None)
+        self.author_id = author_id
+        self.source_thread_id = source_thread_id
+
+    @discord.ui.button(label="✅ Одобрить", style=discord.ButtonStyle.success)
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+
+        guild = interaction.guild
+        member = guild.get_member(self.author_id)
+
+        # Выдаем роль отгула
+        dayoff_role = guild.get_role(DAYOFF_ROLE)
+        if dayoff_role and member:
+            await member.add_roles(dayoff_role)
+
+        # Уведомление в треде
+        await notify_in_thread(
+            DAYOFF_FORUM,
+            self.source_thread_id,
+            self.author_id,
+            approved=True,
+            title="✅ Заявка на отгул одобрена",
+            details="Роль отгула выдана.",
+            admin_name=str(interaction.user)
+        )
+
+        await disable_buttons(interaction.message)
+        await interaction.followup.send("✅ Заявка на отгул одобрена, роль выдана.", ephemeral=True)
+
+    @discord.ui.button(label="❌ Отклонить", style=discord.ButtonStyle.danger)
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = DayoffRejectModal(
+            author_id=self.author_id,
+            review_message=interaction.message,
+            source_thread_id=self.source_thread_id
+        )
+        await interaction.response.send_modal(modal)
+
+
+class DayoffRejectModal(discord.ui.Modal, title="Причина отклонения"):
+    reason = discord.ui.TextInput(label="Причина", style=discord.TextStyle.paragraph)
+
+    def __init__(self, author_id: int, review_message: discord.Message, source_thread_id: int):
+        super().__init__()
+        self.author_id = author_id
+        self.review_message = review_message
+        self.source_thread_id = source_thread_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        await notify_in_thread(
+            DAYOFF_FORUM,
+            self.source_thread_id,
+            self.author_id,
+            approved=False,
+            title="❌ Заявка на отгул отклонена",
+            details=str(self.reason),
+            admin_name=str(interaction.user)
+        )
+
+        await disable_buttons(self.review_message)
+        await interaction.followup.send("✅ Заявка отклонена.", ephemeral=True)
+
+
+# ─── PROMOTION APPLICATION VIEWS ──────────────────────────────────────────────
+
+class PromotionAppReviewView(discord.ui.View):
+    def __init__(self, author_id: int, source_thread_id: int):
+        super().__init__(timeout=None)
+        self.author_id = author_id
+        self.source_thread_id = source_thread_id
+
+    @discord.ui.button(label="✅ Одобрить", style=discord.ButtonStyle.success)
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+
+        guild = interaction.guild
+        member = guild.get_member(self.author_id)
+
+        if not member:
+            await interaction.followup.send("❌ Игрок не найден на сервере.", ephemeral=True)
+            return
+
+        member_role_ids = [r.id for r in member.roles]
+        current_idx = -1
+        for i, rid in enumerate(STAFF_ROLES):
+            if rid in member_role_ids:
+                current_idx = i
+
+        if current_idx == -1:
+            await interaction.followup.send("❌ У игрока нет штабной роли.", ephemeral=True)
+            return
+        if current_idx >= len(STAFF_ROLES) - 1:
+            await interaction.followup.send("❌ У игрока максимальная роль.", ephemeral=True)
+            return
+
+        old_role = guild.get_role(STAFF_ROLES[current_idx])
+        new_role = guild.get_role(STAFF_ROLES[current_idx + 1])
+
+        if old_role:
+            await member.remove_roles(old_role)
+        if new_role:
+            await member.add_roles(new_role)
+
+        # Объявление в канал повышений (БЕЗ информации кто повысил)
+        promo_ch = bot.get_channel(PROMOTION_CHANNEL)
+        if promo_ch:
+            await promo_ch.send(
+                f"{member.mention} Был повышен до {new_role.mention if new_role else STAFF_NAMES[current_idx + 1]}\n"
+                f"Поздравим его! 🎉🎉🎉"
+            )
+
+        # Уведомление в треде
+        await notify_in_thread(
+            PROMO_APP_FORUM,
+            self.source_thread_id,
+            self.author_id,
+            approved=True,
+            title="✅ Заявка на повышение одобрена",
+            details=f"Вы повышены до {new_role.mention if new_role else STAFF_NAMES[current_idx + 1]}!",
+            admin_name=str(interaction.user)
+        )
+
+        await disable_buttons(interaction.message)
+        await interaction.followup.send(f"✅ {member.mention} повышен до **{new_role.mention if new_role else STAFF_NAMES[current_idx + 1]}**!", ephemeral=True)
+
+    @discord.ui.button(label="❌ Отклонить", style=discord.ButtonStyle.danger)
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = PromotionAppRejectModal(
+            author_id=self.author_id,
+            review_message=interaction.message,
+            source_thread_id=self.source_thread_id
+        )
+        await interaction.response.send_modal(modal)
+
+
+class PromotionAppRejectModal(discord.ui.Modal, title="Причина отклонения"):
+    reason = discord.ui.TextInput(label="Причина", style=discord.TextStyle.paragraph)
+
+    def __init__(self, author_id: int, review_message: discord.Message, source_thread_id: int):
+        super().__init__()
+        self.author_id = author_id
+        self.review_message = review_message
+        self.source_thread_id = source_thread_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        await notify_in_thread(
+            PROMO_APP_FORUM,
+            self.source_thread_id,
+            self.author_id,
+            approved=False,
+            title="❌ Заявка на повышение отклонена",
+            details=str(self.reason),
+            admin_name=str(interaction.user)
+        )
+
+        await disable_buttons(self.review_message)
+        await interaction.followup.send("✅ Заявка отклонена.", ephemeral=True)
+
+
+# ─── HELPER FOR THREAD NOTIFICATIONS ──────────────────────────────────────────
+
+async def notify_in_thread(forum_id: int, thread_id: int, author_id: int, approved: bool, title: str, details: str, admin_name: str):
+    """Отправляет уведомление в тред форума"""
+    if not thread_id:
+        return
+
+    channel = bot.get_channel(forum_id)
+    if not channel:
+        return
+
+    thread = None
+    if isinstance(channel, discord.ForumChannel):
+        try:
+            thread = channel.get_thread(thread_id)
+            if not thread:
+                thread = await bot.fetch_channel(thread_id)
+        except Exception:
+            return
+    else:
+        return
+
+    if approved:
+        embed = discord.Embed(
+            title=title,
+            description=f"<@{author_id}>, твоя заявка была **одобрена**. 🎉",
+            color=0x57F287
+        )
+        embed.add_field(name="📌 Детали", value=details or "—", inline=False)
+        embed.set_footer(text=f"Обработал: {admin_name}")
+    else:
+        embed = discord.Embed(
+            title=title,
+            description=f"<@{author_id}>, твоя заявка была **отклонена**.",
+            color=0xED4245
+        )
+        embed.add_field(name="📌 Причина", value=details or "Причина не указана", inline=False)
+        embed.set_footer(text=f"Обработал: {admin_name}")
+
+    try:
+        await thread.send(embed=embed)
+    except Exception as e:
+        print(f"[notify_in_thread] Ошибка: {e}")
+
+
+# ─── LEADERBOARD ──────────────────────────────────────────────────────────────
+
+async def update_leaderboard():
+    """Обновляет сообщение с таблицей баллов всех игроков"""
+    channel = bot.get_channel(LEADERBOARD_CHANNEL)
+    if not channel:
+        return
+
+    guild = channel.guild
+    all_points = db.get_all_points()
+
+    # Группируем игроков по ролям
+    role_groups = {}
+    for user_id, points in all_points.items():
+        member = guild.get_member(user_id)
+        if not member:
+            continue
+
+        # Определяем роль игрока (берем самую высокую штабную роль)
+        member_role_ids = [r.id for r in member.roles]
+        role_name = "Без роли"
+        
+        for i, rid in enumerate(STAFF_ROLES):
+            if rid in member_role_ids:
+                role_name = STAFF_NAMES[i]
+                break
+
+        if role_name not in role_groups:
+            role_groups[role_name] = []
+        
+        role_groups[role_name].append((member, points))
+
+    # Сортируем каждую группу по баллам
+    for role_name in role_groups:
+        role_groups[role_name].sort(key=lambda x: x[1], reverse=True)
+
+    # Формируем embed
+    embed = discord.Embed(
+        title="🏆 Таблица баллов",
+        description="Список всех игроков с баллами, сгруппированных по ролям",
+        color=0xF1C40F
+    )
+
+    # Порядок ролей (от высшей к низшей)
+    role_order = STAFF_NAMES[::-1]  # Разворачиваем, чтобы высшие были сверху
+
+    for role_name in role_order:
+        if role_name not in role_groups:
+            continue
+
+        players_list = []
+        for member, points in role_groups[role_name]:
+            players_list.append(f"{member.mention} — **{points}** 🪙")
+
+        if players_list:
+            embed.add_field(
+                name=f"**{role_name}**",
+                value="\n".join(players_list),
+                inline=False
+            )
+
+    # Добавляем игроков без роли в конце
+    if "Без роли" in role_groups:
+        players_list = []
+        for member, points in role_groups["Без роли"]:
+            players_list.append(f"{member.mention} — **{points}** 🪙")
+
+        if players_list:
+            embed.add_field(
+                name="**Без роли**",
+                value="\n".join(players_list),
+                inline=False
+            )
+
+    embed.set_footer(text="Обновляется автоматически")
+
+    # Ищем существующее сообщение или создаем новое
+    try:
+        messages = [msg async for msg in channel.history(limit=10)]
+        bot_messages = [msg for msg in messages if msg.author == bot.user]
+
+        if bot_messages:
+            # Обновляем последнее сообщение бота
+            await bot_messages[0].edit(embed=embed)
+        else:
+            # Создаем новое сообщение
+            await channel.send(embed=embed)
+    except Exception as e:
+        print(f"[update_leaderboard] Ошибка: {e}")
 
 
 bot.run(os.getenv("DISCORD_TOKEN"))
