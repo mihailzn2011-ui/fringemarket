@@ -37,6 +37,7 @@ PROMO_APP_REVIEW = 1499422949424238592
 
 # Leaderboard channel
 LEADERBOARD_CHANNEL = 1499106986330165329
+DAYOFF_LEADERBOARD_CHANNEL = 1499106986330165329  # Можно указать другой канал если нужно
 
 # Warn role IDs
 WARN_ROLES = [
@@ -73,6 +74,10 @@ async def on_ready():
     print(f"Бот {bot.user} запущен!")
     await bot.tree.sync()
     await update_leaderboard()  # Обновляем лидерборд при старте
+    await update_dayoff_leaderboard()  # Обновляем лидерборд отгулов при старте
+    
+    # Восстанавливаем таймеры для отгулов
+    await restore_dayoff_timers()
 
 
 @bot.event
@@ -451,6 +456,70 @@ async def update_leaderboard_command(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     await update_leaderboard()
     await interaction.followup.send("✅ Таблица баллов обновлена!", ephemeral=True)
+
+
+@bot.tree.command(name="обновитьотгулы", description="Обновить таблицу отгулов вручную")
+async def update_dayoff_leaderboard_command(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    await update_dayoff_leaderboard()
+    await interaction.followup.send("✅ Таблица отгулов обновлена!", ephemeral=True)
+
+
+@bot.tree.command(name="снятьотгул", description="Снять отгул у игрока досрочно")
+@app_commands.describe(игрок="Упомяните игрока")
+async def remove_dayoff_command(interaction: discord.Interaction, игрок: discord.Member):
+    await interaction.response.defer(ephemeral=True)
+    
+    guild = interaction.guild
+    dayoff_role = guild.get_role(DAYOFF_ROLE)
+    
+    if dayoff_role and dayoff_role in игрок.roles:
+        await игрок.remove_roles(dayoff_role)
+    
+    db.remove_dayoff(игрок.id)
+    await update_dayoff_leaderboard()
+    
+    await interaction.followup.send(f"✅ Отгул снят у {игрок.mention}.", ephemeral=True)
+
+
+@bot.tree.command(name="выдатьотгул", description="Выдать отгул игроку")
+@app_commands.describe(игрок="Упомяните игрока", дни="Количество дней отгула")
+async def give_dayoff_command(interaction: discord.Interaction, игрок: discord.Member, дни: int):
+    await interaction.response.defer(ephemeral=True)
+    
+    if дни <= 0:
+        await interaction.followup.send("❌ Количество дней должно быть больше 0.", ephemeral=True)
+        return
+    
+    guild = interaction.guild
+    
+    # Выдаем роль отгула
+    dayoff_role = guild.get_role(DAYOFF_ROLE)
+    if dayoff_role:
+        await игрок.add_roles(dayoff_role)
+    
+    # Вычисляем даты
+    from datetime import datetime, timedelta
+    start_date = datetime.now()
+    end_date = start_date + timedelta(days=дни)
+    
+    start_str = start_date.strftime("%d.%m.%Y")
+    end_str = end_date.strftime("%d.%m.%Y")
+    
+    # Сохраняем в БД
+    db.set_dayoff(игрок.id, start_str, end_str, дни)
+    
+    # Обновляем лидерборд отгулов
+    await update_dayoff_leaderboard()
+    
+    # Планируем снятие роли
+    asyncio.create_task(schedule_dayoff_removal(игрок.id, дни))
+    
+    await interaction.followup.send(
+        f"✅ Отгул выдан {игрок.mention} на **{дни} дней** (до {end_str}).\n"
+        f"Роль будет автоматически снята через {дни} дней.",
+        ephemeral=True
+    )
 
 
 # ─── VIEWS ────────────────────────────────────────────────────────────────────
@@ -991,29 +1060,12 @@ class DayoffReviewView(discord.ui.View):
 
     @discord.ui.button(label="✅ Одобрить", style=discord.ButtonStyle.success)
     async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-
-        guild = interaction.guild
-        member = guild.get_member(self.author_id)
-
-        # Выдаем роль отгула
-        dayoff_role = guild.get_role(DAYOFF_ROLE)
-        if dayoff_role and member:
-            await member.add_roles(dayoff_role)
-
-        # Уведомление в треде
-        await notify_in_thread(
-            DAYOFF_FORUM,
-            self.source_thread_id,
-            self.author_id,
-            approved=True,
-            title="✅ Заявка на отгул одобрена",
-            details="Роль отгула выдана.",
-            admin_name=str(interaction.user)
+        modal = DayoffApproveModal(
+            author_id=self.author_id,
+            review_message=interaction.message,
+            source_thread_id=self.source_thread_id
         )
-
-        await disable_buttons(interaction.message)
-        await interaction.followup.send("✅ Заявка на отгул одобрена, роль выдана.", ephemeral=True)
+        await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="❌ Отклонить", style=discord.ButtonStyle.danger)
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1023,6 +1075,77 @@ class DayoffReviewView(discord.ui.View):
             source_thread_id=self.source_thread_id
         )
         await interaction.response.send_modal(modal)
+
+
+class DayoffApproveModal(discord.ui.Modal, title="Одобрение отгула"):
+    days = discord.ui.TextInput(
+        label="Количество дней",
+        style=discord.TextStyle.short,
+        placeholder="Например: 7"
+    )
+
+    def __init__(self, author_id: int, review_message: discord.Message, source_thread_id: int):
+        super().__init__()
+        self.author_id = author_id
+        self.review_message = review_message
+        self.source_thread_id = source_thread_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            days_count = int(str(self.days))
+        except ValueError:
+            await interaction.followup.send("❌ Введите число.", ephemeral=True)
+            return
+
+        if days_count <= 0:
+            await interaction.followup.send("❌ Количество дней должно быть больше 0.", ephemeral=True)
+            return
+
+        guild = interaction.guild
+        member = guild.get_member(self.author_id)
+
+        if not member:
+            await interaction.followup.send("❌ Игрок не найден на сервере.", ephemeral=True)
+            return
+
+        # Выдаем роль отгула
+        dayoff_role = guild.get_role(DAYOFF_ROLE)
+        if dayoff_role:
+            await member.add_roles(dayoff_role)
+
+        # Вычисляем даты
+        from datetime import datetime, timedelta
+        start_date = datetime.now()
+        end_date = start_date + timedelta(days=days_count)
+        
+        start_str = start_date.strftime("%d.%m.%Y")
+        end_str = end_date.strftime("%d.%m.%Y")
+
+        # Сохраняем в БД
+        db.set_dayoff(self.author_id, start_str, end_str, days_count)
+
+        # Уведомление в треде
+        await notify_in_thread(
+            DAYOFF_FORUM,
+            self.source_thread_id,
+            self.author_id,
+            approved=True,
+            title="✅ Заявка на отгул одобрена",
+            details=f"Отгул выдан на **{days_count} дней**\nС {start_str} по {end_str}",
+            admin_name=str(interaction.user)
+        )
+
+        await disable_buttons(self.review_message)
+        
+        # Обновляем лидерборд отгулов
+        await update_dayoff_leaderboard()
+
+        # Планируем снятие роли
+        asyncio.create_task(schedule_dayoff_removal(self.author_id, days_count))
+
+        await interaction.followup.send(f"✅ Отгул одобрен на **{days_count} дней** (до {end_str}). Роль выдана.", ephemeral=True)
 
 
 class DayoffRejectModal(discord.ui.Modal, title="Причина отклонения"):
@@ -1273,7 +1396,7 @@ async def update_leaderboard():
     # Ищем существующее сообщение или создаем новое
     try:
         messages = [msg async for msg in channel.history(limit=10)]
-        bot_messages = [msg for msg in messages if msg.author == bot.user]
+        bot_messages = [msg for msg in messages if msg.author == bot.user and msg.embeds and msg.embeds[0].title == "🏆 Таблица баллов"]
 
         if bot_messages:
             # Обновляем последнее сообщение бота
@@ -1283,6 +1406,126 @@ async def update_leaderboard():
             await channel.send(embed=embed)
     except Exception as e:
         print(f"[update_leaderboard] Ошибка: {e}")
+
+
+async def update_dayoff_leaderboard():
+    """Обновляет сообщение с таблицей отгулов"""
+    channel = bot.get_channel(DAYOFF_LEADERBOARD_CHANNEL)
+    if not channel:
+        return
+
+    guild = channel.guild
+    all_dayoffs = db.get_all_dayoffs()
+
+    if not all_dayoffs:
+        # Если нет отгулов, удаляем старое сообщение если есть
+        try:
+            messages = [msg async for msg in channel.history(limit=10)]
+            bot_messages = [msg for msg in messages if msg.author == bot.user and msg.embeds and msg.embeds[0].title == "🏖️ Список отгулов"]
+            if bot_messages:
+                await bot_messages[0].delete()
+        except Exception:
+            pass
+        return
+
+    # Формируем embed
+    embed = discord.Embed(
+        title="🏖️ Список отгулов",
+        description="Игроки, находящиеся в отгуле",
+        color=0x3498DB
+    )
+
+    dayoff_list = []
+    for user_id, dayoff_info in all_dayoffs.items():
+        member = guild.get_member(user_id)
+        if not member:
+            continue
+
+        start_date = dayoff_info.get("start_date", "?")
+        end_date = dayoff_info.get("end_date", "?")
+        
+        dayoff_list.append(f"{member.mention}\n📅 С **{start_date}** по **{end_date}**")
+
+    if dayoff_list:
+        embed.add_field(
+            name="Игроки в отгуле",
+            value="\n\n".join(dayoff_list),
+            inline=False
+        )
+
+    embed.set_footer(text="Обновляется автоматически")
+
+    # Ищем существующее сообщение или создаем новое
+    try:
+        messages = [msg async for msg in channel.history(limit=10)]
+        bot_messages = [msg for msg in messages if msg.author == bot.user and msg.embeds and msg.embeds[0].title == "🏖️ Список отгулов"]
+
+        if bot_messages:
+            # Обновляем последнее сообщение бота
+            await bot_messages[0].edit(embed=embed)
+        else:
+            # Создаем новое сообщение
+            await channel.send(embed=embed)
+    except Exception as e:
+        print(f"[update_dayoff_leaderboard] Ошибка: {e}")
+
+
+async def schedule_dayoff_removal(user_id: int, days: int):
+    """Планирует снятие роли отгула через указанное количество дней"""
+    await asyncio.sleep(days * 24 * 60 * 60)  # Конвертируем дни в секунды
+
+    # Снимаем роль
+    for guild in bot.guilds:
+        member = guild.get_member(user_id)
+        if member:
+            dayoff_role = guild.get_role(DAYOFF_ROLE)
+            if dayoff_role and dayoff_role in member.roles:
+                await member.remove_roles(dayoff_role)
+                print(f"[schedule_dayoff_removal] Роль отгула снята у {member}")
+
+    # Удаляем из БД
+    db.remove_dayoff(user_id)
+
+    # Обновляем лидерборд
+    await update_dayoff_leaderboard()
+
+
+async def restore_dayoff_timers():
+    """Восстанавливает таймеры для отгулов при перезапуске бота"""
+    from datetime import datetime
+    
+    all_dayoffs = db.get_all_dayoffs()
+    current_date = datetime.now()
+
+    for user_id, dayoff_info in all_dayoffs.items():
+        try:
+            end_date_str = dayoff_info.get("end_date", "")
+            end_date = datetime.strptime(end_date_str, "%d.%m.%Y")
+            
+            # Вычисляем оставшееся время
+            time_left = (end_date - current_date).total_seconds()
+            
+            if time_left <= 0:
+                # Отгул уже истек, снимаем роль сразу
+                for guild in bot.guilds:
+                    member = guild.get_member(user_id)
+                    if member:
+                        dayoff_role = guild.get_role(DAYOFF_ROLE)
+                        if dayoff_role and dayoff_role in member.roles:
+                            await member.remove_roles(dayoff_role)
+                            print(f"[restore_dayoff_timers] Роль отгула снята у {member} (истек)")
+                
+                db.remove_dayoff(user_id)
+            else:
+                # Планируем снятие роли
+                days_left = time_left / (24 * 60 * 60)
+                asyncio.create_task(schedule_dayoff_removal(user_id, days_left))
+                print(f"[restore_dayoff_timers] Восстановлен таймер для user_id={user_id}, осталось {days_left:.2f} дней")
+        
+        except Exception as e:
+            print(f"[restore_dayoff_timers] Ошибка для user_id={user_id}: {e}")
+
+    await update_dayoff_leaderboard()
 
 
 bot.run(os.getenv("DISCORD_TOKEN"))
