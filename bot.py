@@ -357,7 +357,14 @@ class ShopSelectView(discord.ui.View):
         guild = interaction.guild
         member = guild.get_member(self.author_id)
 
-        # Модалки нельзя использовать после defer — отправляем их сразу
+        # --- Проверка что member существует ---
+        if member is None:
+            await interaction.response.send_message(
+                "❌ Не удалось найти игрока на сервере.", ephemeral=True
+            )
+            return
+
+        # Модалки отправляем ДО defer — это единственное исключение
         if value == "case_relic":
             modal = QuantityModal(
                 "📦 Кейс с Рилликами", "Количество кейсов",
@@ -376,23 +383,30 @@ class ShopSelectView(discord.ui.View):
             await interaction.response.send_modal(modal)
             return
 
-        # Для всех остальных — defer, чтобы Discord не падал с ошибкой взаимодействия
+        # Для всех остальных — сначала defer, потом работаем
         await interaction.response.defer(ephemeral=True)
 
-        if value == "warn_remove":
-            await process_warn_remove(interaction, member, self.review_message, self.source_thread_id)
-        elif value == "mute_remove":
-            await process_mute_remove(interaction, member, self.review_message, self.source_thread_id)
-        elif value == "donate_helper":
-            await process_simple(interaction, member, 80, "💎 Донат Helper на твинк", "Для выдачи доната обратитесь к администрации.", self.review_message, self.source_thread_id)
-        elif value == "kit":
-            await process_simple(interaction, member, 65, "🎁 Кит", "Для выдачи кита обратитесь к администрации.", self.review_message, self.source_thread_id)
-        elif value == "promote":
-            await process_promotion(interaction, member, self.review_message, self.source_thread_id)
-        elif value == "bonus_salary":
-            await process_bonus(interaction, member, BONUS_SALARY_ROLE, "💸 Бонус к зарплате", 200, self.review_message, self.source_thread_id)
-        elif value == "bonus_points":
-            await process_bonus(interaction, member, BONUS_POINTS_ROLE, "⭐ Бонус к баллам", 200, self.review_message, self.source_thread_id)
+        try:
+            if value == "warn_remove":
+                await process_warn_remove(interaction, member, self.review_message, self.source_thread_id)
+            elif value == "mute_remove":
+                await process_mute_remove(interaction, member, self.review_message, self.source_thread_id)
+            elif value == "donate_helper":
+                await process_simple(interaction, member, 80, "💎 Донат Helper на твинк", "Для выдачи доната обратитесь к администрации.", self.review_message, self.source_thread_id)
+            elif value == "kit":
+                await process_simple(interaction, member, 65, "🎁 Кит", "Для выдачи кита обратитесь к администрации.", self.review_message, self.source_thread_id)
+            elif value == "promote":
+                await process_promotion(interaction, member, self.review_message, self.source_thread_id)
+            elif value == "bonus_salary":
+                await process_bonus(interaction, member, BONUS_SALARY_ROLE, "💸 Бонус к зарплате", 200, self.review_message, self.source_thread_id)
+            elif value == "bonus_points":
+                await process_bonus(interaction, member, BONUS_POINTS_ROLE, "⭐ Бонус к баллам", 200, self.review_message, self.source_thread_id)
+        except Exception as e:
+            print(f"[select_callback] Ошибка при обработке '{value}': {e}")
+            try:
+                await interaction.followup.send(f"❌ Произошла ошибка: `{e}`", ephemeral=True)
+            except Exception:
+                pass
 
 
 class QuantityModal(discord.ui.Modal):
@@ -417,6 +431,10 @@ class QuantityModal(discord.ui.Modal):
         guild = interaction.guild
         member = guild.get_member(self.author_id)
 
+        if member is None:
+            await interaction.followup.send("❌ Не удалось найти игрока на сервере.", ephemeral=True)
+            return
+
         if self.item_type == "case_relic":
             cost = qty * 20
             item_name = f"📦 Кейс с Рилликами x{qty}"
@@ -426,12 +444,16 @@ class QuantityModal(discord.ui.Modal):
             item_name = f"✨ Рилики x{qty}"
             description = f"{qty} риликов"
 
-        success = await deduct_and_notify(
-            interaction, member, cost, item_name, description,
-            self.review_message, source_thread_id=self.source_thread_id
-        )
-        if success:
-            await interaction.followup.send(f"✅ **{item_name}** — списано {cost} 🪙", ephemeral=True)
+        try:
+            success = await deduct_and_notify(
+                interaction, member, cost, item_name, description,
+                self.review_message, source_thread_id=self.source_thread_id
+            )
+            if success:
+                await interaction.followup.send(f"✅ **{item_name}** — списано {cost} 🪙", ephemeral=True)
+        except Exception as e:
+            print(f"[QuantityModal] Ошибка: {e}")
+            await interaction.followup.send(f"❌ Ошибка: `{e}`", ephemeral=True)
 
 
 # ─── HANDLERS ─────────────────────────────────────────────────────────────────
