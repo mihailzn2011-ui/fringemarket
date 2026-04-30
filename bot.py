@@ -564,14 +564,14 @@ async def multi_warn(interaction: discord.Interaction, игроки: str, при
         return
 
     announce_ch = bot.get_channel(WARN_ANNOUNCE_CHANNEL)
-    results = []
+    players_lines = []
 
     for игрок in members:
         member_role_ids = [r.id for r in игрок.roles]
         warn_count = sum(1 for rid in WARN_ROLES if rid in member_role_ids)
 
         if warn_count >= 3:
-            results.append(f"⛔ {игрок.mention} — уже 3/3, пропущен")
+            players_lines.append(f"⛔ {игрок.mention} — уже 3/3")
             continue
 
         role_to_add = guild.get_role(WARN_ROLES[warn_count])
@@ -582,42 +582,33 @@ async def multi_warn(interaction: discord.Interaction, игроки: str, при
 
         if new_count == 1:
             warn_emoji = "🟢"
-            embed_color = 0x57F287
         elif new_count == 2:
             warn_emoji = "🟡"
-            embed_color = 0xFEE75C
         else:
             warn_emoji = "🔴"
-            embed_color = 0xED4245
 
         filled = warn_emoji * new_count
         empty = "⚫" * (3 - new_count)
         warn_bar = filled + empty
 
-        results.append(f"{warn_emoji} {игрок.mention} — {warn_bar} **{new_count}/3**")
+        players_lines.append(f"{игрок.mention} {warn_bar} **{new_count}/3**")
 
-        # Отправляем отдельный красивый embed на каждого
-        if announce_ch:
-            embed_announce = discord.Embed(
-                title=f"⚠️ {причина}",
-                description=f"{игрок.mention} получил варн!",
-                color=embed_color
-            )
-            embed_announce.add_field(name="👤 Игрок", value=игрок.mention, inline=True)
-            embed_announce.add_field(name="🛡️ Выдал", value=interaction.user.mention, inline=True)
-            embed_announce.add_field(name=f"Варны {warn_bar} {new_count}/3", value="", inline=False)
-            embed_announce.set_thumbnail(url=игрок.display_avatar.url)
-            embed_announce.set_footer(text=f"ID: {игрок.id} • Мультиварн")
-            await announce_ch.send(embed=embed_announce)
+    # Одно общее сообщение на всех
+    if announce_ch and players_lines:
+        embed_announce = discord.Embed(
+            title=f"⚠️ {причина}",
+            color=0xED4245
+        )
+        embed_announce.add_field(
+            name="👥 Игроки",
+            value="\n".join(players_lines),
+            inline=False
+        )
+        embed_announce.add_field(name="🛡️ Выдал", value=interaction.user.mention, inline=False)
+        await announce_ch.send(embed=embed_announce)
 
     await update_warn_leaderboard()
-
-    # Итоговый отчёт для администратора
-    result_text = "\n".join(results)
-    await interaction.followup.send(
-        f"✅ **Мультиварн выдан** | Причина: **{причина}**\n\n{result_text}",
-        ephemeral=True
-    )
+    await interaction.followup.send(f"✅ Мультиварн выдан на **{len(members)}** игроков.", ephemeral=True)
 
 
 @bot.tree.command(name="снятьбаллы", description="Снять баллы у игрока")
