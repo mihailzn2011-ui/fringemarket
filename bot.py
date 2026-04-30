@@ -227,6 +227,9 @@ class RejectModal(discord.ui.Modal, title="Причина отклонения")
         self.source_thread_id = source_thread_id
 
     async def on_submit(self, interaction: discord.Interaction):
+        # ✅ defer первым — до любых тяжёлых операций
+        await interaction.response.defer(ephemeral=True)
+
         guild = interaction.guild
         member = guild.get_member(self.author_id)
 
@@ -246,7 +249,7 @@ class RejectModal(discord.ui.Modal, title="Причина отклонения")
             admin_name=str(interaction.user)
         )
 
-        await interaction.response.send_message("✅ Заявка отклонена.", ephemeral=True)
+        await interaction.followup.send("✅ Заявка отклонена.", ephemeral=True)
 
 
 class SelectTypeView(discord.ui.View):
@@ -285,10 +288,13 @@ class AccrualModal(discord.ui.Modal, title="Зачисление баллов"):
         self.source_thread_id = source_thread_id
 
     async def on_submit(self, interaction: discord.Interaction):
+        # ✅ defer первым
+        await interaction.response.defer(ephemeral=True)
+
         try:
             count = int(str(self.punishments))
         except ValueError:
-            await interaction.response.send_message("❌ Введите число.", ephemeral=True)
+            await interaction.followup.send("❌ Введите число.", ephemeral=True)
             return
 
         points = round(count * 1.5)
@@ -323,7 +329,7 @@ class AccrualModal(discord.ui.Modal, title="Зачисление баллов"):
             admin_name=str(interaction.user)
         )
 
-        await interaction.response.send_message("✅ Баллы начислены!", ephemeral=True)
+        await interaction.followup.send("✅ Баллы начислены!", ephemeral=True)
 
 
 # ─── SHOP ─────────────────────────────────────────────────────────────────────
@@ -357,14 +363,13 @@ class ShopSelectView(discord.ui.View):
         guild = interaction.guild
         member = guild.get_member(self.author_id)
 
-        # --- Проверка что member существует ---
         if member is None:
             await interaction.response.send_message(
                 "❌ Не удалось найти игрока на сервере.", ephemeral=True
             )
             return
 
-        # Модалки отправляем ДО defer — это единственное исключение
+        # Модалки — send_modal должен быть первым ответом, defer несовместим
         if value == "case_relic":
             modal = QuantityModal(
                 "📦 Кейс с Рилликами", "Количество кейсов",
@@ -383,7 +388,7 @@ class ShopSelectView(discord.ui.View):
             await interaction.response.send_modal(modal)
             return
 
-        # Для всех остальных — сначала defer, потом работаем
+        # ✅ Для всех остальных — defer первым
         await interaction.response.defer(ephemeral=True)
 
         try:
@@ -420,13 +425,14 @@ class QuantityModal(discord.ui.Modal):
         self.add_item(self.qty_input)
 
     async def on_submit(self, interaction: discord.Interaction):
+        # ✅ defer первым
+        await interaction.response.defer(ephemeral=True)
+
         try:
             qty = int(str(self.qty_input))
         except ValueError:
-            await interaction.response.send_message("❌ Введите число.", ephemeral=True)
+            await interaction.followup.send("❌ Введите число.", ephemeral=True)
             return
-
-        await interaction.response.defer(ephemeral=True)
 
         guild = interaction.guild
         member = guild.get_member(self.author_id)
