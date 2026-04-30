@@ -37,7 +37,7 @@ PROMO_APP_REVIEW = 1499422949424238592
 
 # Leaderboard channel
 LEADERBOARD_CHANNEL = 1499106986330165329
-DAYOFF_LEADERBOARD_CHANNEL = 1499106986330165329  # Можно указать другой канал если нужно
+DAYOFF_LEADERBOARD_CHANNEL = 1499106968521146589  # Канал для таблицы отгулов
 
 # Commands channel
 COMMANDS_CHANNEL = 1499413386411114710
@@ -597,9 +597,60 @@ async def test_leaderboard(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     
     try:
+        # Проверяем канал
+        channel = bot.get_channel(LEADERBOARD_CHANNEL)
+        if not channel:
+            await interaction.followup.send(f"❌ Канал {LEADERBOARD_CHANNEL} не найден!", ephemeral=True)
+            return
+        
+        await interaction.followup.send(f"✅ Канал найден: {channel.name}\nОбновляю лидерборды...", ephemeral=True)
+        
         await update_leaderboard()
         await update_dayoff_leaderboard()
+        
         await interaction.followup.send("✅ Лидерборды обновлены! Проверьте консоль для отладочной информации.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Ошибка: {e}", ephemeral=True)
+        import traceback
+        traceback.print_exc()
+
+
+@bot.tree.command(name="создатьлидерборд", description="Принудительно создать лидерборд с тестовыми данными")
+async def force_create_leaderboard(interaction: discord.Interaction):
+    # Проверка ролей
+    user_role_ids = [role.id for role in interaction.user.roles]
+    if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
+        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        channel = bot.get_channel(LEADERBOARD_CHANNEL)
+        if not channel:
+            await interaction.followup.send(f"❌ Канал {LEADERBOARD_CHANNEL} не найден!", ephemeral=True)
+            return
+        
+        # Создаем тестовый embed
+        embed = discord.Embed(
+            title="🏆 Таблица баллов",
+            description="Список всех игроков с баллами, сгруппированных по ролям",
+            color=0xF1C40F
+        )
+        
+        embed.add_field(
+            name="Пусто",
+            value="Пока нет игроков с баллами",
+            inline=False
+        )
+        
+        embed.set_footer(text="Обновляется автоматически")
+        
+        # Отправляем сообщение
+        msg = await channel.send(embed=embed)
+        
+        await interaction.followup.send(f"✅ Лидерборд создан в канале {channel.mention}!\nID сообщения: {msg.id}", ephemeral=True)
+        
     except Exception as e:
         await interaction.followup.send(f"❌ Ошибка: {e}", ephemeral=True)
         import traceback
