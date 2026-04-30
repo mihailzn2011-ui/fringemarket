@@ -190,6 +190,136 @@ async def give_points(interaction: discord.Interaction, игрок: discord.Memb
     await interaction.response.send_message(embed=embed)
 
 
+@bot.tree.command(name="выдатьварн", description="Выдать варн игроку")
+@app_commands.describe(игрок="Упомяните игрока", причина="Причина выдачи варна", скриншот="Ссылка на скриншот (опционально)")
+async def give_warn(interaction: discord.Interaction, игрок: discord.Member, причина: str, скриншот: str = None):
+    await interaction.response.defer(ephemeral=True)
+    
+    guild = interaction.guild
+    member_role_ids = [r.id for r in игрок.roles]
+    warn_count = sum(1 for rid in WARN_ROLES if rid in member_role_ids)
+
+    if warn_count >= 3:
+        await interaction.followup.send("❌ У игрока уже максимум варнов (3/3).", ephemeral=True)
+        return
+
+    # Выдаем следующий варн
+    role_to_add = guild.get_role(WARN_ROLES[warn_count])
+    if role_to_add:
+        await игрок.add_roles(role_to_add)
+
+    new_count = warn_count + 1
+
+    # Объявление в канал варнов
+    announce_ch = bot.get_channel(WARN_ANNOUNCE_CHANNEL)
+    if announce_ch:
+        embed_announce = discord.Embed(title="🚫 Выдача варна", color=0xED4245)
+        embed_announce.add_field(name="Варны", value=f"{new_count}/3", inline=True)
+        embed_announce.add_field(name="Причина", value=причина, inline=False)
+        if скриншот:
+            embed_announce.set_image(url=скриншот)
+        embed_announce.set_footer(text=f"Выдал: {interaction.user.name}")
+        await announce_ch.send(content=игрок.mention, embed=embed_announce)
+
+    await interaction.followup.send(f"✅ Варн выдан {игрок.mention}. Варны: **{new_count}/3**", ephemeral=True)
+
+
+@bot.tree.command(name="выдатьустник", description="Выдать устник игроку")
+@app_commands.describe(игрок="Упомяните игрока", причина="Причина выдачи устника", скриншот="Ссылка на скриншот (опционально)")
+async def give_mute(interaction: discord.Interaction, игрок: discord.Member, причина: str, скриншот: str = None):
+    await interaction.response.defer(ephemeral=True)
+    
+    guild = interaction.guild
+    member_role_ids = [r.id for r in игрок.roles]
+    mute_count = sum(1 for rid in MUTE_ROLES if rid in member_role_ids)
+
+    if mute_count >= 2:
+        await interaction.followup.send("❌ У игрока уже максимум устников (2/2).", ephemeral=True)
+        return
+
+    # Выдаем следующий устник
+    role_to_add = guild.get_role(MUTE_ROLES[mute_count])
+    if role_to_add:
+        await игрок.add_roles(role_to_add)
+
+    new_count = mute_count + 1
+
+    # Объявление в канал варнов
+    announce_ch = bot.get_channel(WARN_ANNOUNCE_CHANNEL)
+    if announce_ch:
+        embed_announce = discord.Embed(title="� Выдача устника", color=0xF1C40F)
+        embed_announce.add_field(name="Устники", value=f"{new_count}/2", inline=True)
+        embed_announce.add_field(name="Причина", value=причина, inline=False)
+        if скриншот:
+            embed_announce.set_image(url=скриншот)
+        embed_announce.set_footer(text=f"Выдал: {interaction.user.name}")
+        await announce_ch.send(content=игрок.mention, embed=embed_announce)
+
+    await interaction.followup.send(f"✅ Устник выдан {игрок.mention}. Устники: **{new_count}/2**", ephemeral=True)
+
+
+@bot.tree.command(name="снятьбаллы", description="Снять баллы у игрока")
+@app_commands.describe(игрок="Упомяните игрока", количество="Количество баллов для снятия")
+async def remove_points(interaction: discord.Interaction, игрок: discord.Member, количество: int):
+    await interaction.response.defer(ephemeral=True)
+    
+    current = db.get_points(игрок.id)
+    new_total = max(0, current - количество)
+    db.set_points(игрок.id, new_total, str(игрок))
+
+    # Пост в канал проверки
+    embed_review = discord.Embed(title="💸 Баллы сняты", color=0xE74C3C)
+    embed_review.add_field(name="Игрок", value=игрок.mention, inline=True)
+    embed_review.add_field(name="Снято", value=f"-{количество} 🪙", inline=True)
+    embed_review.add_field(name="Новый баланс", value=f"{new_total} 🪙", inline=True)
+    embed_review.set_footer(text=f"Снял: {interaction.user}")
+    await bot.get_channel(REVIEW_CHANNEL).send(embed=embed_review)
+
+    await interaction.followup.send(f"✅ Снято **{количество} 🪙** у {игрок.mention}. Новый баланс: **{new_total} 🪙**", ephemeral=True)
+
+
+@bot.tree.command(name="выдатьповышение", description="Повысить игрока")
+@app_commands.describe(игрок="Упомяните игрока")
+async def give_promotion(interaction: discord.Interaction, игрок: discord.Member):
+    await interaction.response.defer(ephemeral=True)
+    
+    guild = interaction.guild
+    member_role_ids = [r.id for r in игрок.roles]
+
+    current_idx = -1
+    for i, rid in enumerate(STAFF_ROLES):
+        if rid in member_role_ids:
+            current_idx = i
+
+    if current_idx == -1:
+        await interaction.followup.send("❌ У игрока нет штабной роли.", ephemeral=True)
+        return
+    if current_idx >= len(STAFF_ROLES) - 1:
+        await interaction.followup.send("❌ У игрока максимальная роль.", ephemeral=True)
+        return
+
+    old_role = guild.get_role(STAFF_ROLES[current_idx])
+    new_role = guild.get_role(STAFF_ROLES[current_idx + 1])
+
+    if old_role:
+        await игрок.remove_roles(old_role)
+    if new_role:
+        await игрок.add_roles(new_role)
+
+    # Объявление в канал повышений
+    promo_ch = bot.get_channel(PROMOTION_CHANNEL)
+    if promo_ch:
+        embed = discord.Embed(title="⬆️ Повышение", color=0x9B59B6)
+        embed.add_field(name="Новая роль", value=new_role.mention if new_role else STAFF_NAMES[current_idx + 1], inline=True)
+        embed.set_footer(text=f"Выдал: {interaction.user.name}")
+        await promo_ch.send(
+            content=f"{игрок.mention} Был повышен до {new_role.mention if new_role else STAFF_NAMES[current_idx + 1]}\nПоздравим его! 🎉🎉🎉",
+            embed=embed
+        )
+
+    await interaction.followup.send(f"✅ {игрок.mention} повышен до **{new_role.mention if new_role else STAFF_NAMES[current_idx + 1]}**!", ephemeral=True)
+
+
 # ─── VIEWS ────────────────────────────────────────────────────────────────────
 
 class ReviewView(discord.ui.View):
