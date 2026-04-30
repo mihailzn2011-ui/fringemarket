@@ -60,7 +60,6 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    # ✅ Только обычный текстовый канал, НЕ форум-тред
     if (
         message.channel.id == WATCH_CHANNEL
         and not message.author.bot
@@ -73,11 +72,10 @@ async def on_message(message):
 
 @bot.event
 async def on_thread_create(thread: discord.Thread):
-    """Срабатывает когда создаётся новый тред в форуме."""
     if thread.parent_id != WATCH_CHANNEL:
         return
 
-    await asyncio.sleep(1.5)  # ждём появления стартового сообщения
+    await asyncio.sleep(1.5)
 
     try:
         starter = await thread.fetch_message(thread.id)
@@ -103,7 +101,6 @@ async def on_thread_create(thread: discord.Thread):
     if attachment_url:
         embed.set_image(url=attachment_url)
 
-    # Передаём thread.id чтобы потом ответить в тред
     view = ReviewView(author_id=thread.owner_id, source_thread_id=thread.id)
     await review_channel.send(embed=embed, view=view)
 
@@ -130,7 +127,6 @@ async def forward_to_review(message: discord.Message, thread_id):
 # ─── УВЕДОМЛЕНИЕ В ТРЕД ИГРОКА ────────────────────────────────────────────────
 
 async def notify_author_in_thread(thread_id: int | None, author_id: int, approved: bool, details: str = "", admin_name: str = ""):
-    """Отправляет красивое уведомление в тред форума игроку."""
     if not thread_id:
         return
 
@@ -138,7 +134,6 @@ async def notify_author_in_thread(thread_id: int | None, author_id: int, approve
     if not channel:
         return
 
-    # Пробуем получить тред из форума
     thread = None
     if isinstance(channel, discord.ForumChannel):
         try:
@@ -153,22 +148,16 @@ async def notify_author_in_thread(thread_id: int | None, author_id: int, approve
     if approved:
         embed = discord.Embed(
             title="✅ Заявка одобрена",
-            description=(
-                f"Поздравляем, <@{author_id}>!\n"
-                f"Твоя заявка была **рассмотрена и одобрена**. 🎉"
-            ),
+            description=f"<@{author_id}>, твоя заявка была **одобрена**. 🎉",
             color=0x57F287
         )
         embed.add_field(name="📌 Детали", value=details or "—", inline=False)
         embed.set_footer(text=f"Обработал: {admin_name}" if admin_name else "Обработано администрацией")
-        embed.set_thumbnail(url="https://i.imgur.com/4M34hi2.png")  # галочка-иконка
+        embed.set_thumbnail(url="https://i.imgur.com/4M34hi2.png")
     else:
         embed = discord.Embed(
             title="❌ Заявка отклонена",
-            description=(
-                f"К сожалению, <@{author_id}>,\n"
-                f"твоя заявка была **отклонена**."
-            ),
+            description=f"<@{author_id}>, твоя заявка была **отклонена**.",
             color=0xED4245
         )
         embed.add_field(name="📌 Причина", value=details or "Причина не указана", inline=False)
@@ -207,7 +196,7 @@ class ReviewView(discord.ui.View):
     def __init__(self, author_id: int, source_thread_id: int | None = None):
         super().__init__(timeout=None)
         self.author_id = author_id
-        self.source_thread_id = source_thread_id  # ID треда форума откуда пришла заявка
+        self.source_thread_id = source_thread_id
 
     @discord.ui.button(label="✅ Одобрить", style=discord.ButtonStyle.success)
     async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -249,7 +238,6 @@ class RejectModal(discord.ui.Modal, title="Причина отклонения")
         await post_to_forum(guild, embed, f"Отклонено — {member or self.author_id}")
         await disable_buttons(self.review_message)
 
-        # Уведомление в тред игрока
         await notify_author_in_thread(
             self.source_thread_id,
             self.author_id,
@@ -327,12 +315,11 @@ class AccrualModal(discord.ui.Modal, title="Зачисление баллов"):
 
         await disable_buttons(self.review_message)
 
-        # Уведомление в тред игрока
         await notify_author_in_thread(
             self.source_thread_id,
             self.author_id,
             approved=True,
-            details=f"Начислено **+{points} 🪙** (наказаний: {count})\nНовый баланс: **{new_total} 🪙**",
+            details=f"Начислено **+{points} 🪙**\nНовый баланс: **{new_total} 🪙**",
             admin_name=str(interaction.user)
         )
 
@@ -370,6 +357,28 @@ class ShopSelectView(discord.ui.View):
         guild = interaction.guild
         member = guild.get_member(self.author_id)
 
+        # Модалки нельзя использовать после defer — отправляем их сразу
+        if value == "case_relic":
+            modal = QuantityModal(
+                "📦 Кейс с Рилликами", "Количество кейсов",
+                self.author_id, self.review_message,
+                item_type="case_relic", source_thread_id=self.source_thread_id
+            )
+            await interaction.response.send_modal(modal)
+            return
+
+        if value == "relics":
+            modal = QuantityModal(
+                "✨ Рилики", "Количество риликов (20 шт = 1 балл)",
+                self.author_id, self.review_message,
+                item_type="relics", source_thread_id=self.source_thread_id
+            )
+            await interaction.response.send_modal(modal)
+            return
+
+        # Для всех остальных — defer, чтобы Discord не падал с ошибкой взаимодействия
+        await interaction.response.defer(ephemeral=True)
+
         if value == "warn_remove":
             await process_warn_remove(interaction, member, self.review_message, self.source_thread_id)
         elif value == "mute_remove":
@@ -378,12 +387,6 @@ class ShopSelectView(discord.ui.View):
             await process_simple(interaction, member, 80, "💎 Донат Helper на твинк", "Для выдачи доната обратитесь к администрации.", self.review_message, self.source_thread_id)
         elif value == "kit":
             await process_simple(interaction, member, 65, "🎁 Кит", "Для выдачи кита обратитесь к администрации.", self.review_message, self.source_thread_id)
-        elif value == "case_relic":
-            modal = QuantityModal("📦 Кейс с Рилликами", "Количество кейсов", self.author_id, self.review_message, item_type="case_relic", source_thread_id=self.source_thread_id)
-            await interaction.response.send_modal(modal)
-        elif value == "relics":
-            modal = QuantityModal("✨ Рилики", "Количество риликов (20 шт = 1 балл)", self.author_id, self.review_message, item_type="relics", source_thread_id=self.source_thread_id)
-            await interaction.response.send_modal(modal)
         elif value == "promote":
             await process_promotion(interaction, member, self.review_message, self.source_thread_id)
         elif value == "bonus_salary":
@@ -409,6 +412,8 @@ class QuantityModal(discord.ui.Modal):
             await interaction.response.send_message("❌ Введите число.", ephemeral=True)
             return
 
+        await interaction.response.defer(ephemeral=True)
+
         guild = interaction.guild
         member = guild.get_member(self.author_id)
 
@@ -426,7 +431,7 @@ class QuantityModal(discord.ui.Modal):
             self.review_message, source_thread_id=self.source_thread_id
         )
         if success:
-            await interaction.response.send_message(f"✅ **{item_name}** — списано {cost} 🪙", ephemeral=True)
+            await interaction.followup.send(f"✅ **{item_name}** — списано {cost} 🪙", ephemeral=True)
 
 
 # ─── HANDLERS ─────────────────────────────────────────────────────────────────
@@ -434,7 +439,7 @@ class QuantityModal(discord.ui.Modal):
 async def deduct_and_notify(interaction, member, cost, item_name, description, review_message, extra_fields=None, source_thread_id=None):
     current = db.get_points(member.id)
     if cost > 0 and current < cost:
-        await interaction.response.send_message(f"❌ Недостаточно баллов. Нужно: {cost}, есть: {current}", ephemeral=True)
+        await interaction.followup.send(f"❌ Недостаточно баллов. Нужно: {cost}, есть: {current}", ephemeral=True)
         return False
 
     new_total = current - cost
@@ -463,7 +468,6 @@ async def deduct_and_notify(interaction, member, cost, item_name, description, r
 
     await disable_buttons(review_message)
 
-    # Уведомление в тред игрока
     details_parts = [f"**{item_name}**"]
     if description:
         details_parts.append(description)
@@ -486,7 +490,7 @@ async def deduct_and_notify(interaction, member, cost, item_name, description, r
 async def process_simple(interaction, member, cost, item_name, description, review_message, source_thread_id=None):
     success = await deduct_and_notify(interaction, member, cost, item_name, description, review_message, source_thread_id=source_thread_id)
     if success:
-        await interaction.response.send_message(f"✅ **{item_name}** обработана.", ephemeral=True)
+        await interaction.followup.send(f"✅ **{item_name}** обработана.", ephemeral=True)
 
 
 async def process_warn_remove(interaction, member, review_message, source_thread_id=None):
@@ -495,7 +499,7 @@ async def process_warn_remove(interaction, member, review_message, source_thread
     warn_count = sum(1 for rid in WARN_ROLES if rid in member_role_ids)
 
     if warn_count == 0:
-        await interaction.response.send_message("❌ У игрока нет варнов.", ephemeral=True)
+        await interaction.followup.send("❌ У игрока нет варнов.", ephemeral=True)
         return
 
     role_to_remove = guild.get_role(WARN_ROLES[warn_count - 1])
@@ -515,7 +519,7 @@ async def process_warn_remove(interaction, member, review_message, source_thread
             embed = discord.Embed(title="🚫 Покупка снятия варна", color=0xED4245)
             embed.add_field(name="Варны", value=f"{new_count}/3", inline=True)
             await announce_ch.send(content=member.mention, embed=embed)
-        await interaction.response.send_message("✅ Варн снят.", ephemeral=True)
+        await interaction.followup.send("✅ Варн снят.", ephemeral=True)
 
 
 async def process_mute_remove(interaction, member, review_message, source_thread_id=None):
@@ -524,7 +528,7 @@ async def process_mute_remove(interaction, member, review_message, source_thread
     mute_count = sum(1 for rid in MUTE_ROLES if rid in member_role_ids)
 
     if mute_count == 0:
-        await interaction.response.send_message("❌ У игрока нет устников.", ephemeral=True)
+        await interaction.followup.send("❌ У игрока нет устников.", ephemeral=True)
         return
 
     role_to_remove = guild.get_role(MUTE_ROLES[mute_count - 1])
@@ -544,7 +548,7 @@ async def process_mute_remove(interaction, member, review_message, source_thread
             embed = discord.Embed(title="🔇 Покупка снятия устника", color=0xF1C40F)
             embed.add_field(name="Устники", value=f"{new_count}/2", inline=True)
             await announce_ch.send(content=member.mention, embed=embed)
-        await interaction.response.send_message("✅ Устник снят.", ephemeral=True)
+        await interaction.followup.send("✅ Устник снят.", ephemeral=True)
 
 
 async def process_promotion(interaction, member, review_message, source_thread_id=None):
@@ -557,10 +561,10 @@ async def process_promotion(interaction, member, review_message, source_thread_i
             current_idx = i
 
     if current_idx == -1:
-        await interaction.response.send_message("❌ У игрока нет штабной роли.", ephemeral=True)
+        await interaction.followup.send("❌ У игрока нет штабной роли.", ephemeral=True)
         return
     if current_idx >= len(STAFF_ROLES) - 1:
-        await interaction.response.send_message("❌ У игрока максимальная роль.", ephemeral=True)
+        await interaction.followup.send("❌ У игрока максимальная роль.", ephemeral=True)
         return
 
     old_role = guild.get_role(STAFF_ROLES[current_idx])
@@ -584,7 +588,7 @@ async def process_promotion(interaction, member, review_message, source_thread_i
                 f"{member.mention} Был повышен до {new_role.mention if new_role else STAFF_NAMES[current_idx + 1]}\n"
                 f"Поздравим его! 🎉🎉🎉"
             )
-        await interaction.response.send_message("✅ Повышение выполнено.", ephemeral=True)
+        await interaction.followup.send("✅ Повышение выполнено.", ephemeral=True)
 
 
 async def process_bonus(interaction, member, role_id, item_name, cost, review_message, source_thread_id=None):
@@ -594,7 +598,7 @@ async def process_bonus(interaction, member, role_id, item_name, cost, review_me
         await member.add_roles(role)
     success = await deduct_and_notify(interaction, member, cost, item_name, "", review_message, source_thread_id=source_thread_id)
     if success:
-        await interaction.response.send_message(f"✅ **{item_name}** выдан.", ephemeral=True)
+        await interaction.followup.send(f"✅ **{item_name}** выдан.", ephemeral=True)
 
 
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
