@@ -39,6 +39,7 @@ PROMO_APP_REVIEW = 1499473570617753700
 LEADERBOARD_CHANNEL = 1441724727910469633
 DAYOFF_LEADERBOARD_CHANNEL = 1496230104756523099  # Канал для таблицы отгулов
 WARN_LEADERBOARD_CHANNEL = 1473657044899856414  # Канал для списка варнов
+MUTE_LEADERBOARD_CHANNEL = 1499487138792870018  # Канал для списка устников
 
 # Commands channel
 COMMANDS_CHANNEL = 1499413386411114710
@@ -54,17 +55,17 @@ ALLOWED_COMMAND_ROLES = [
     1429895978986635476,
 ]
 
-# Warn role IDs
+# Warn role IDs (в порядке от 1/3 к 3/3)
 WARN_ROLES = [
-    1429895978931978273,
-    1429895978931978274,
-    1429895978931978275,
+    1429895978931978273,  # 1/3
+    1429895978931978274,  # 2/3
+    1429895978931978275,  # 3/3
 ]
 
-# Mute role IDs
+# Mute role IDs (в порядке от 1/2 к 2/2)
 MUTE_ROLES = [
-    1469416711798390927,
-    1469416666772406335,
+    1469416711798390927,  # 1/2
+    1469416666772406335,  # 2/2
 ]
 
 # Staff role IDs
@@ -117,6 +118,15 @@ async def on_ready():
         await update_warn_leaderboard()
         print("<:white_black_staff_badge:1499471650532360254> Лидерборд варнов обновлен!")
     except Exception as e:
+        print(f"<:dnd_badge:1499472489112273077> Ошибка обновления лидерборда варнов: {e}")
+    
+    try:
+        await update_mute_leaderboard()
+        print("<:white_black_staff_badge:1499471650532360254> Лидерборд устников обновлен!")
+    except Exception as e:
+        print(f"<:dnd_badge:1499472489112273077> Ошибка обновления лидерборда устников: {e}")
+    
+    # Восстанавливаем таймеры для отгулов
         print(f"<:dnd_badge:1499472489112273077> Ошибка обновления лидерборда варнов: {e}")
     
     # Восстанавливаем таймеры для отгулов
@@ -440,13 +450,16 @@ async def give_mute(interaction: discord.Interaction, игрок: discord.Member
     # Объявление в канал варнов
     announce_ch = bot.get_channel(WARN_ANNOUNCE_CHANNEL)
     if announce_ch:
-        embed_announce = discord.Embed(title="  Выдача устника", color=0xF1C40F)
+        embed_announce = discord.Embed(title="🔇 Выдача устника", color=0xF1C40F)
         embed_announce.add_field(name="Устники", value=f"{new_count}/2", inline=True)
         embed_announce.add_field(name="Причина", value=причина, inline=False)
         if скриншот:
             embed_announce.set_image(url=скриншот)
         embed_announce.set_footer(text=f"Выдал: {interaction.user.name}")
         await announce_ch.send(content=игрок.mention, embed=embed_announce)
+
+    # Обновляем лидерборд устников
+    await update_mute_leaderboard()
 
     await interaction.followup.send(f"<:white_black_staff_badge:1499471650532360254> Устник выдан {игрок.mention}. Устники: **{new_count}/2**", ephemeral=True)
 
@@ -564,6 +577,19 @@ async def update_warn_leaderboard_command(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     await update_warn_leaderboard()
     await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Список варнов обновлен!", ephemeral=True)
+
+
+@bot.tree.command(name="устники_обновить", description="Обновить список устников вручную")
+async def update_mute_leaderboard_command(interaction: discord.Interaction):
+    # Проверка ролей
+    user_role_ids = [role.id for role in interaction.user.roles]
+    if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
+        await interaction.response.send_message("<:dnd_badge:1499472489112273077> У вас нет прав для использования этой команды.", ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    await update_mute_leaderboard()
+    await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Список устников обновлен!", ephemeral=True)
 
 
 @bot.tree.command(name="отгул_снять", description="Снять отгул у игрока досрочно")
@@ -1072,6 +1098,11 @@ async def process_warn_remove(interaction, member, review_message, source_thread
         await update_warn_leaderboard()
         
         await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Варн снят.", ephemeral=True)
+        
+        # Обновляем лидерборд варнов
+        await update_warn_leaderboard()
+        
+        await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Варн снят.", ephemeral=True)
 
 
 async def process_mute_remove(interaction, member, review_message, source_thread_id=None):
@@ -1100,6 +1131,10 @@ async def process_mute_remove(interaction, member, review_message, source_thread
             embed = discord.Embed(title="🔇 Покупка снятия устника", color=0xF1C40F)
             embed.add_field(name="Устники", value=f"{new_count}/2", inline=True)
             await announce_ch.send(content=member.mention, embed=embed)
+        
+        # Обновляем лидерборд устников
+        await update_mute_leaderboard()
+        
         await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Устник снят.", ephemeral=True)
 
 
@@ -1741,7 +1776,14 @@ async def update_warn_leaderboard():
             
             warn_list = []
             for member, warn_count in warn_players:
-                warn_emoji = "🔴" * warn_count
+                # Цветные кружки: 1 - зеленый, 2 - желтый, 3 - красный
+                if warn_count == 1:
+                    warn_emoji = "�"
+                elif warn_count == 2:
+                    warn_emoji = "🟡"
+                else:  # 3
+                    warn_emoji = "🔴"
+                
                 warn_list.append(f"{member.mention} — {warn_emoji} **{warn_count}/3**")
             
             embed.add_field(
@@ -1773,6 +1815,84 @@ async def update_warn_leaderboard():
     
     except Exception as e:
         print(f"[update_warn_leaderboard] Ошибка: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+async def update_mute_leaderboard():
+    """Обновляет сообщение со списком устников"""
+    try:
+        channel = bot.get_channel(MUTE_LEADERBOARD_CHANNEL)
+        if not channel:
+            print(f"[update_mute_leaderboard] Канал {MUTE_LEADERBOARD_CHANNEL} не найден")
+            return
+
+        guild = channel.guild
+        
+        # Собираем всех игроков с устниками
+        mute_players = []
+        for member in guild.members:
+            if member.bot:
+                continue
+            
+            member_role_ids = [r.id for r in member.roles]
+            mute_count = sum(1 for rid in MUTE_ROLES if rid in member_role_ids)
+            
+            if mute_count > 0:
+                mute_players.append((member, mute_count))
+        
+        print(f"[update_mute_leaderboard] Найдено {len(mute_players)} игроков с устниками")
+
+        # Формируем embed
+        embed = discord.Embed(
+            title="🔇 Список устников",
+            description="Игроки с активными устниками",
+            color=0xF1C40F
+        )
+
+        if mute_players:
+            # Сортируем по количеству устников (больше устников - выше)
+            mute_players.sort(key=lambda x: x[1], reverse=True)
+            
+            mute_list = []
+            for member, mute_count in mute_players:
+                # Цветные кружки: 1 - желтый, 2 - оранжевый
+                if mute_count == 1:
+                    mute_emoji = "🟡"
+                else:  # 2
+                    mute_emoji = "🟠"
+                
+                mute_list.append(f"{member.mention} — {mute_emoji} **{mute_count}/2**")
+            
+            embed.add_field(
+                name="Игроки с устниками",
+                value="\n".join(mute_list),
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="Пусто",
+                value="Нет игроков с устниками",
+                inline=False
+            )
+
+        embed.set_footer(text="Обновляется автоматически")
+
+        # Ищем существующее сообщение или создаем новое
+        messages = [msg async for msg in channel.history(limit=10)]
+        bot_messages = [msg for msg in messages if msg.author == bot.user and msg.embeds and msg.embeds[0].title == "🔇 Список устников"]
+
+        if bot_messages:
+            # Обновляем последнее сообщение бота
+            await bot_messages[0].edit(embed=embed)
+            print(f"[update_mute_leaderboard] Лидерборд устников обновлен")
+        else:
+            # Создаем новое сообщение
+            await channel.send(embed=embed)
+            print(f"[update_mute_leaderboard] Лидерборд устников создан")
+    
+    except Exception as e:
+        print(f"[update_mute_leaderboard] Ошибка: {e}")
         import traceback
         traceback.print_exc()
 
