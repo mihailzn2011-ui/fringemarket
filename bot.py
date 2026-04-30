@@ -17,81 +17,114 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 db = DBManager()
 
 # Channel IDs
-WATCH_CHANNEL = 1499110010976997508
-REVIEW_CHANNEL = 1499110318117486654
-WARN_ANNOUNCE_CHANNEL = 1499106932752126107
-PROMOTION_CHANNEL = 1499106965173960815
+WATCH_CHANNEL = 1429899592824258590
+REVIEW_CHANNEL = 1499473605535203358
+WARN_ANNOUNCE_CHANNEL = 1429895979863113832
+PROMOTION_CHANNEL = 1493355826138583061
 
 # Salary application channels
-SALARY_FORUM = 1499421059810726108
-SALARY_REVIEW = 1499421416658047034
+SALARY_FORUM = 1429899084331876494
+SALARY_REVIEW = 1499473760673505387
 
 # Day off application channels
-DAYOFF_FORUM = 1499421830421807104
-DAYOFF_REVIEW = 1499422048265437385
-DAYOFF_ROLE = 1499106627918233751
+DAYOFF_FORUM = 1429895980177821772
+DAYOFF_REVIEW = 1499473645863571637
+DAYOFF_ROLE = 1493325741444563198
 
 # Promotion application channels
-PROMO_APP_FORUM = 1499422806365048902
-PROMO_APP_REVIEW = 1499422949424238592
+PROMO_APP_FORUM = 1429895980177821773
+PROMO_APP_REVIEW = 1499473570617753700
 
 # Leaderboard channel
-LEADERBOARD_CHANNEL = 1499106986330165329
-DAYOFF_LEADERBOARD_CHANNEL = 1499106968521146589  # Канал для таблицы отгулов
+LEADERBOARD_CHANNEL = 1441724727910469633
+DAYOFF_LEADERBOARD_CHANNEL = 1496230104756523099  # Канал для таблицы отгулов
+WARN_LEADERBOARD_CHANNEL = 1473657044899856414  # Канал для списка варнов
 
 # Commands channel
 COMMANDS_CHANNEL = 1499413386411114710
 
 # Allowed roles for commands
 ALLOWED_COMMAND_ROLES = [
-    1499106625716228197,
-    1499106623128473673,
-    1499106622083956919,
-    1499106620494446762,
-    1499106619450196008,
-    1499106616761647174,
-    1499106615650025482,
+    1429895978986635471,
+    1429895978986635472,
+    1432365999457308702,
+    1429895978986635473,
+    1429895978986635475,
+    1430265900526862438,
+    1429895978986635476,
 ]
 
 # Warn role IDs
 WARN_ROLES = [
-    1499106669278400642,
-    1499106668334682193,
-    1499106667378376715,
+    1429895978931978273,
+    1429895978931978274,
+    1429895978931978275,
 ]
 
 # Mute role IDs
 MUTE_ROLES = [
-    1499106671157444871,
-    1499106670180044900,
+    1469416711798390927,
+    1469416666772406335,
 ]
 
 # Staff role IDs
 STAFF_ROLES = [
-    1499106642216882376,
-    1499106641298325554,
-    1499106640182513715,
-    1499106638764834857,
-    1499106637284380693,
-    1499106634734108855,
-    1499106633970880652,
+    1429895978931978278,
+    1429895978931978279,
+    1430261456514977923,
+    1429895978986635467,
+    1438962347589898331,
+    1429895978986635468,
+    1429895978986635469,
 ]
 
 STAFF_NAMES = ["Хелпер", "Ст. Хелпер", "Мл. Модер", "Модер", "Модер+", "Ст. Модер", "Гл. Модер"]
 
-BONUS_SALARY_ROLE = 1499106656884232344
-BONUS_POINTS_ROLE = 1499106655802097795
+BONUS_SALARY_ROLE = 1466142358549823672
+BONUS_POINTS_ROLE = 1466142620580450439
 
 
 @bot.event
 async def on_ready():
     print(f"Бот {bot.user} запущен!")
-    await bot.tree.sync()
-    await update_leaderboard()  # Обновляем лидерборд при старте
-    await update_dayoff_leaderboard()  # Обновляем лидерборд отгулов при старте
+    print(f"Подключен к {len(bot.guilds)} серверам")
+    
+    try:
+        # Синхронизируем команды
+        synced = await bot.tree.sync()
+        print(f"<:white_black_staff_badge:1499471650532360254> Синхронизировано {len(synced)} команд!")
+        for cmd in synced:
+            print(f"  - /{cmd.name}")
+    except Exception as e:
+        print(f"<:dnd_badge:1499472489112273077> Ошибка синхронизации команд: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Обновляем лидерборды
+    try:
+        await update_leaderboard()
+        print("<:white_black_staff_badge:1499471650532360254> Лидерборд баллов обновлен!")
+    except Exception as e:
+        print(f"<:dnd_badge:1499472489112273077> Ошибка обновления лидерборда баллов: {e}")
+    
+    try:
+        await update_dayoff_leaderboard()
+        print("<:white_black_staff_badge:1499471650532360254> Лидерборд отгулов обновлен!")
+    except Exception as e:
+        print(f"<:dnd_badge:1499472489112273077> Ошибка обновления лидерборда отгулов: {e}")
+    
+    try:
+        await update_warn_leaderboard()
+        print("<:white_black_staff_badge:1499471650532360254> Лидерборд варнов обновлен!")
+    except Exception as e:
+        print(f"<:dnd_badge:1499472489112273077> Ошибка обновления лидерборда варнов: {e}")
     
     # Восстанавливаем таймеры для отгулов
-    await restore_dayoff_timers()
+    try:
+        await restore_dayoff_timers()
+        print("<:white_black_staff_badge:1499471650532360254> Таймеры отгулов восстановлены!")
+    except Exception as e:
+        print(f"<:dnd_badge:1499472489112273077> Ошибка восстановления таймеров: {e}")
 
 
 @bot.event
@@ -288,7 +321,7 @@ async def notify_author_in_thread(thread_id: int | None, author_id: int, approve
 
     if approved:
         embed = discord.Embed(
-            title="✅ Заявка одобрена",
+            title="<:white_black_staff_badge:1499471650532360254> Заявка одобрена",
             description=f"<@{author_id}>, твоя заявка была **одобрена**. 🎉",
             color=0x57F287
         )
@@ -297,7 +330,7 @@ async def notify_author_in_thread(thread_id: int | None, author_id: int, approve
         embed.set_thumbnail(url="https://i.imgur.com/4M34hi2.png")
     else:
         embed = discord.Embed(
-            title="❌ Заявка отклонена",
+            title="<:dnd_badge:1499472489112273077> Заявка отклонена",
             description=f"<@{author_id}>, твоя заявка была **отклонена**.",
             color=0xED4245
         )
@@ -318,7 +351,7 @@ async def give_points(interaction: discord.Interaction, игрок: discord.Memb
     # Проверка ролей
     user_role_ids = [role.id for role in interaction.user.roles]
     if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
-        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        await interaction.response.send_message("<:dnd_badge:1499472489112273077> У вас нет прав для использования этой команды.", ephemeral=True)
         return
 
     current = db.get_points(игрок.id)
@@ -341,7 +374,7 @@ async def give_warn(interaction: discord.Interaction, игрок: discord.Member
     # Проверка ролей
     user_role_ids = [role.id for role in interaction.user.roles]
     if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
-        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        await interaction.response.send_message("<:dnd_badge:1499472489112273077> У вас нет прав для использования этой команды.", ephemeral=True)
         return
     
     await interaction.response.defer(ephemeral=True)
@@ -351,7 +384,7 @@ async def give_warn(interaction: discord.Interaction, игрок: discord.Member
     warn_count = sum(1 for rid in WARN_ROLES if rid in member_role_ids)
 
     if warn_count >= 3:
-        await interaction.followup.send("❌ У игрока уже максимум варнов (3/3).", ephemeral=True)
+        await interaction.followup.send("<:dnd_badge:1499472489112273077> У игрока уже максимум варнов (3/3).", ephemeral=True)
         return
 
     # Выдаем следующий варн
@@ -364,7 +397,7 @@ async def give_warn(interaction: discord.Interaction, игрок: discord.Member
     # Объявление в канал варнов
     announce_ch = bot.get_channel(WARN_ANNOUNCE_CHANNEL)
     if announce_ch:
-        embed_announce = discord.Embed(title="🚫 Выдача варна", color=0xED4245)
+        embed_announce = discord.Embed(title="<:warning:1499473741036654613> Выдача варна", color=0xED4245)
         embed_announce.add_field(name="Варны", value=f"{new_count}/3", inline=True)
         embed_announce.add_field(name="Причина", value=причина, inline=False)
         if скриншот:
@@ -372,7 +405,10 @@ async def give_warn(interaction: discord.Interaction, игрок: discord.Member
         embed_announce.set_footer(text=f"Выдал: {interaction.user.name}")
         await announce_ch.send(content=игрок.mention, embed=embed_announce)
 
-    await interaction.followup.send(f"✅ Варн выдан {игрок.mention}. Варны: **{new_count}/3**", ephemeral=True)
+    # Обновляем лидерборд варнов
+    await update_warn_leaderboard()
+
+    await interaction.followup.send(f"<:white_black_staff_badge:1499471650532360254> Варн выдан {игрок.mention}. Варны: **{new_count}/3**", ephemeral=True)
 
 
 @bot.tree.command(name="выдатьустник", description="Выдать устник игроку")
@@ -381,7 +417,7 @@ async def give_mute(interaction: discord.Interaction, игрок: discord.Member
     # Проверка ролей
     user_role_ids = [role.id for role in interaction.user.roles]
     if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
-        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        await interaction.response.send_message("<:dnd_badge:1499472489112273077> У вас нет прав для использования этой команды.", ephemeral=True)
         return
     
     await interaction.response.defer(ephemeral=True)
@@ -391,7 +427,7 @@ async def give_mute(interaction: discord.Interaction, игрок: discord.Member
     mute_count = sum(1 for rid in MUTE_ROLES if rid in member_role_ids)
 
     if mute_count >= 2:
-        await interaction.followup.send("❌ У игрока уже максимум устников (2/2).", ephemeral=True)
+        await interaction.followup.send("<:dnd_badge:1499472489112273077> У игрока уже максимум устников (2/2).", ephemeral=True)
         return
 
     # Выдаем следующий устник
@@ -404,7 +440,7 @@ async def give_mute(interaction: discord.Interaction, игрок: discord.Member
     # Объявление в канал варнов
     announce_ch = bot.get_channel(WARN_ANNOUNCE_CHANNEL)
     if announce_ch:
-        embed_announce = discord.Embed(title="� Выдача устника", color=0xF1C40F)
+        embed_announce = discord.Embed(title="  Выдача устника", color=0xF1C40F)
         embed_announce.add_field(name="Устники", value=f"{new_count}/2", inline=True)
         embed_announce.add_field(name="Причина", value=причина, inline=False)
         if скриншот:
@@ -412,7 +448,7 @@ async def give_mute(interaction: discord.Interaction, игрок: discord.Member
         embed_announce.set_footer(text=f"Выдал: {interaction.user.name}")
         await announce_ch.send(content=игрок.mention, embed=embed_announce)
 
-    await interaction.followup.send(f"✅ Устник выдан {игрок.mention}. Устники: **{new_count}/2**", ephemeral=True)
+    await interaction.followup.send(f"<:white_black_staff_badge:1499471650532360254> Устник выдан {игрок.mention}. Устники: **{new_count}/2**", ephemeral=True)
 
 
 @bot.tree.command(name="снятьбаллы", description="Снять баллы у игрока")
@@ -421,7 +457,7 @@ async def remove_points(interaction: discord.Interaction, игрок: discord.Me
     # Проверка ролей
     user_role_ids = [role.id for role in interaction.user.roles]
     if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
-        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        await interaction.response.send_message("<:dnd_badge:1499472489112273077> У вас нет прав для использования этой команды.", ephemeral=True)
         return
     
     await interaction.response.defer(ephemeral=True)
@@ -438,7 +474,7 @@ async def remove_points(interaction: discord.Interaction, игрок: discord.Me
     embed_review.set_footer(text=f"Снял: {interaction.user}")
     await bot.get_channel(REVIEW_CHANNEL).send(embed=embed_review)
 
-    await interaction.followup.send(f"✅ Снято **{количество} 🪙** у {игрок.mention}. Новый баланс: **{new_total} 🪙**", ephemeral=True)
+    await interaction.followup.send(f"<:white_black_staff_badge:1499471650532360254> Снято **{количество} 🪙** у {игрок.mention}. Новый баланс: **{new_total} 🪙**", ephemeral=True)
     
     await update_leaderboard()
 
@@ -449,7 +485,7 @@ async def give_promotion(interaction: discord.Interaction, игрок: discord.M
     # Проверка ролей
     user_role_ids = [role.id for role in interaction.user.roles]
     if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
-        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        await interaction.response.send_message("<:dnd_badge:1499472489112273077> У вас нет прав для использования этой команды.", ephemeral=True)
         return
     
     await interaction.response.defer(ephemeral=True)
@@ -463,10 +499,10 @@ async def give_promotion(interaction: discord.Interaction, игрок: discord.M
             current_idx = i
 
     if current_idx == -1:
-        await interaction.followup.send("❌ У игрока нет штабной роли.", ephemeral=True)
+        await interaction.followup.send("<:dnd_badge:1499472489112273077> У игрока нет штабной роли.", ephemeral=True)
         return
     if current_idx >= len(STAFF_ROLES) - 1:
-        await interaction.followup.send("❌ У игрока максимальная роль.", ephemeral=True)
+        await interaction.followup.send("<:dnd_badge:1499472489112273077> У игрока максимальная роль.", ephemeral=True)
         return
 
     old_role = guild.get_role(STAFF_ROLES[current_idx])
@@ -488,7 +524,7 @@ async def give_promotion(interaction: discord.Interaction, игрок: discord.M
             embed=embed
         )
 
-    await interaction.followup.send(f"✅ {игрок.mention} повышен до **{new_role.mention if new_role else STAFF_NAMES[current_idx + 1]}**!", ephemeral=True)
+    await interaction.followup.send(f"<:white_black_staff_badge:1499471650532360254> {игрок.mention} повышен до **{new_role.mention if new_role else STAFF_NAMES[current_idx + 1]}**!", ephemeral=True)
 
 
 @bot.tree.command(name="обновитьлидерборд", description="Обновить таблицу баллов вручную")
@@ -496,34 +532,47 @@ async def update_leaderboard_command(interaction: discord.Interaction):
     # Проверка ролей
     user_role_ids = [role.id for role in interaction.user.roles]
     if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
-        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        await interaction.response.send_message("<:dnd_badge:1499472489112273077> У вас нет прав для использования этой команды.", ephemeral=True)
         return
     
     await interaction.response.defer(ephemeral=True)
     await update_leaderboard()
-    await interaction.followup.send("✅ Таблица баллов обновлена!", ephemeral=True)
+    await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Таблица баллов обновлена!", ephemeral=True)
 
 
-@bot.tree.command(name="обновитьотгулы", description="Обновить таблицу отгулов вручную")
+@bot.tree.command(name="отгулы_обновить", description="Обновить таблицу отгулов вручную")
 async def update_dayoff_leaderboard_command(interaction: discord.Interaction):
     # Проверка ролей
     user_role_ids = [role.id for role in interaction.user.roles]
     if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
-        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        await interaction.response.send_message("<:dnd_badge:1499472489112273077> У вас нет прав для использования этой команды.", ephemeral=True)
         return
     
     await interaction.response.defer(ephemeral=True)
     await update_dayoff_leaderboard()
-    await interaction.followup.send("✅ Таблица отгулов обновлена!", ephemeral=True)
+    await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Таблица отгулов обновлена!", ephemeral=True)
 
 
-@bot.tree.command(name="снятьотгул", description="Снять отгул у игрока досрочно")
+@bot.tree.command(name="варны_обновить", description="Обновить список варнов вручную")
+async def update_warn_leaderboard_command(interaction: discord.Interaction):
+    # Проверка ролей
+    user_role_ids = [role.id for role in interaction.user.roles]
+    if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
+        await interaction.response.send_message("<:dnd_badge:1499472489112273077> У вас нет прав для использования этой команды.", ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    await update_warn_leaderboard()
+    await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Список варнов обновлен!", ephemeral=True)
+
+
+@bot.tree.command(name="отгул_снять", description="Снять отгул у игрока досрочно")
 @app_commands.describe(игрок="Упомяните игрока")
 async def remove_dayoff_command(interaction: discord.Interaction, игрок: discord.Member):
     # Проверка ролей
     user_role_ids = [role.id for role in interaction.user.roles]
     if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
-        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        await interaction.response.send_message("<:dnd_badge:1499472489112273077> У вас нет прав для использования этой команды.", ephemeral=True)
         return
     
     await interaction.response.defer(ephemeral=True)
@@ -537,22 +586,22 @@ async def remove_dayoff_command(interaction: discord.Interaction, игрок: di
     db.remove_dayoff(игрок.id)
     await update_dayoff_leaderboard()
     
-    await interaction.followup.send(f"✅ Отгул снят у {игрок.mention}.", ephemeral=True)
+    await interaction.followup.send(f"<:white_black_staff_badge:1499471650532360254> Отгул снят у {игрок.mention}.", ephemeral=True)
 
 
-@bot.tree.command(name="выдатьотгул", description="Выдать отгул игроку")
+@bot.tree.command(name="отгул_выдать", description="Выдать отгул игроку")
 @app_commands.describe(игрок="Упомяните игрока", дни="Количество дней отгула")
 async def give_dayoff_command(interaction: discord.Interaction, игрок: discord.Member, дни: int):
     # Проверка ролей
     user_role_ids = [role.id for role in interaction.user.roles]
     if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
-        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        await interaction.response.send_message("<:dnd_badge:1499472489112273077> У вас нет прав для использования этой команды.", ephemeral=True)
         return
     
     await interaction.response.defer(ephemeral=True)
     
     if дни <= 0:
-        await interaction.followup.send("❌ Количество дней должно быть больше 0.", ephemeral=True)
+        await interaction.followup.send("<:dnd_badge:1499472489112273077> Количество дней должно быть больше 0.", ephemeral=True)
         return
     
     guild = interaction.guild
@@ -580,18 +629,18 @@ async def give_dayoff_command(interaction: discord.Interaction, игрок: disc
     asyncio.create_task(schedule_dayoff_removal(игрок.id, дни))
     
     await interaction.followup.send(
-        f"✅ Отгул выдан {игрок.mention} на **{дни} дней** (до {end_str}).\n"
+        f"<:white_black_staff_badge:1499471650532360254> Отгул выдан {игрок.mention} на **{дни} дней** (до {end_str}).\n"
         f"Роль будет автоматически снята через {дни} дней.",
         ephemeral=True
     )
 
 
-@bot.tree.command(name="тестлидерборд", description="Тестовая команда для проверки лидербордов")
+@bot.tree.command(name="тест_лидерборд", description="Тестовая команда для проверки лидербордов")
 async def test_leaderboard(interaction: discord.Interaction):
     # Проверка ролей
     user_role_ids = [role.id for role in interaction.user.roles]
     if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
-        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        await interaction.response.send_message("<:dnd_badge:1499472489112273077> У вас нет прав для использования этой команды.", ephemeral=True)
         return
     
     await interaction.response.defer(ephemeral=True)
@@ -600,27 +649,27 @@ async def test_leaderboard(interaction: discord.Interaction):
         # Проверяем канал
         channel = bot.get_channel(LEADERBOARD_CHANNEL)
         if not channel:
-            await interaction.followup.send(f"❌ Канал {LEADERBOARD_CHANNEL} не найден!", ephemeral=True)
+            await interaction.followup.send(f"<:dnd_badge:1499472489112273077> Канал {LEADERBOARD_CHANNEL} не найден!", ephemeral=True)
             return
         
-        await interaction.followup.send(f"✅ Канал найден: {channel.name}\nОбновляю лидерборды...", ephemeral=True)
+        await interaction.followup.send(f"<:white_black_staff_badge:1499471650532360254> Канал найден: {channel.name}\nОбновляю лидерборды...", ephemeral=True)
         
         await update_leaderboard()
         await update_dayoff_leaderboard()
         
-        await interaction.followup.send("✅ Лидерборды обновлены! Проверьте консоль для отладочной информации.", ephemeral=True)
+        await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Лидерборды обновлены! Проверьте консоль для отладочной информации.", ephemeral=True)
     except Exception as e:
-        await interaction.followup.send(f"❌ Ошибка: {e}", ephemeral=True)
+        await interaction.followup.send(f"<:dnd_badge:1499472489112273077> Ошибка: {e}", ephemeral=True)
         import traceback
         traceback.print_exc()
 
 
-@bot.tree.command(name="создатьлидерборд", description="Принудительно создать лидерборд с тестовыми данными")
+@bot.tree.command(name="создать_лидерборд", description="Принудительно создать лидерборд с тестовыми данными")
 async def force_create_leaderboard(interaction: discord.Interaction):
     # Проверка ролей
     user_role_ids = [role.id for role in interaction.user.roles]
     if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
-        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        await interaction.response.send_message("<:dnd_badge:1499472489112273077> У вас нет прав для использования этой команды.", ephemeral=True)
         return
     
     await interaction.response.defer(ephemeral=True)
@@ -628,7 +677,7 @@ async def force_create_leaderboard(interaction: discord.Interaction):
     try:
         channel = bot.get_channel(LEADERBOARD_CHANNEL)
         if not channel:
-            await interaction.followup.send(f"❌ Канал {LEADERBOARD_CHANNEL} не найден!", ephemeral=True)
+            await interaction.followup.send(f"<:dnd_badge:1499472489112273077> Канал {LEADERBOARD_CHANNEL} не найден!", ephemeral=True)
             return
         
         # Создаем тестовый embed
@@ -649,10 +698,10 @@ async def force_create_leaderboard(interaction: discord.Interaction):
         # Отправляем сообщение
         msg = await channel.send(embed=embed)
         
-        await interaction.followup.send(f"✅ Лидерборд создан в канале {channel.mention}!\nID сообщения: {msg.id}", ephemeral=True)
+        await interaction.followup.send(f"<:white_black_staff_badge:1499471650532360254> Лидерборд создан в канале {channel.mention}!\nID сообщения: {msg.id}", ephemeral=True)
         
     except Exception as e:
-        await interaction.followup.send(f"❌ Ошибка: {e}", ephemeral=True)
+        await interaction.followup.send(f"<:dnd_badge:1499472489112273077> Ошибка: {e}", ephemeral=True)
         import traceback
         traceback.print_exc()
 
@@ -665,7 +714,7 @@ class ReviewView(discord.ui.View):
         self.author_id = author_id
         self.source_thread_id = source_thread_id
 
-    @discord.ui.button(label="✅ Одобрить", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="<:white_black_staff_badge:1499471650532360254> Одобрить", style=discord.ButtonStyle.success)
     async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = SelectTypeView(
             author_id=self.author_id,
@@ -674,7 +723,7 @@ class ReviewView(discord.ui.View):
         )
         await interaction.response.send_message("Выберите тип:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="❌ Отклонить", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="<:dnd_badge:1499472489112273077> Отклонить", style=discord.ButtonStyle.danger)
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = RejectModal(
             author_id=self.author_id,
@@ -694,13 +743,13 @@ class RejectModal(discord.ui.Modal, title="Причина отклонения")
         self.source_thread_id = source_thread_id
 
     async def on_submit(self, interaction: discord.Interaction):
-        # ✅ defer первым — до любых тяжёлых операций
+        # <:white_black_staff_badge:1499471650532360254> defer первым — до любых тяжёлых операций
         await interaction.response.defer(ephemeral=True)
 
         guild = interaction.guild
         member = guild.get_member(self.author_id)
 
-        embed = discord.Embed(title="❌ Заявка отклонена", color=0xED4245)
+        embed = discord.Embed(title="<:dnd_badge:1499472489112273077> Заявка отклонена", color=0xED4245)
         embed.add_field(name="Игрок", value=member.mention if member else f"<@{self.author_id}>", inline=True)
         embed.add_field(name="Причина", value=str(self.reason), inline=False)
         embed.set_footer(text=f"Отклонил: {interaction.user}")
@@ -716,7 +765,7 @@ class RejectModal(discord.ui.Modal, title="Причина отклонения")
             admin_name=str(interaction.user)
         )
 
-        await interaction.followup.send("✅ Заявка отклонена.", ephemeral=True)
+        await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Заявка отклонена.", ephemeral=True)
 
 
 class SelectTypeView(discord.ui.View):
@@ -755,13 +804,13 @@ class AccrualModal(discord.ui.Modal, title="Зачисление баллов"):
         self.source_thread_id = source_thread_id
 
     async def on_submit(self, interaction: discord.Interaction):
-        # ✅ defer первым
+        # <:white_black_staff_badge:1499471650532360254> defer первым
         await interaction.response.defer(ephemeral=True)
 
         try:
             count = int(str(self.punishments))
         except ValueError:
-            await interaction.followup.send("❌ Введите число.", ephemeral=True)
+            await interaction.followup.send("<:dnd_badge:1499472489112273077> Введите число.", ephemeral=True)
             return
 
         points = round(count * 1.5)
@@ -778,7 +827,7 @@ class AccrualModal(discord.ui.Modal, title="Зачисление баллов"):
         embed_forum.set_footer(text=f"Администратор: {interaction.user.name}")
         await post_to_forum(guild, embed_forum, f"Зачисление — {member or self.author_id}")
 
-        embed_review = discord.Embed(title="✅ Баллы начислены", color=0x57F287)
+        embed_review = discord.Embed(title="<:white_black_staff_badge:1499471650532360254> Баллы начислены", color=0x57F287)
         embed_review.add_field(name="Игрок", value=member.mention if member else f"<@{self.author_id}>", inline=True)
         embed_review.add_field(name="Наказаний", value=str(count), inline=True)
         embed_review.add_field(name="Начислено", value=f"+{points} 🪙", inline=True)
@@ -796,7 +845,7 @@ class AccrualModal(discord.ui.Modal, title="Зачисление баллов"):
             admin_name=str(interaction.user)
         )
 
-        await interaction.followup.send("✅ Баллы начислены!", ephemeral=True)
+        await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Баллы начислены!", ephemeral=True)
         
         await update_leaderboard()
 
@@ -834,7 +883,7 @@ class ShopSelectView(discord.ui.View):
 
         if member is None:
             await interaction.response.send_message(
-                "❌ Не удалось найти игрока на сервере.", ephemeral=True
+                "<:dnd_badge:1499472489112273077> Не удалось найти игрока на сервере.", ephemeral=True
             )
             return
 
@@ -857,7 +906,7 @@ class ShopSelectView(discord.ui.View):
             await interaction.response.send_modal(modal)
             return
 
-        # ✅ Для всех остальных — defer первым
+        # <:white_black_staff_badge:1499471650532360254> Для всех остальных — defer первым
         await interaction.response.defer(ephemeral=True)
 
         try:
@@ -878,7 +927,7 @@ class ShopSelectView(discord.ui.View):
         except Exception as e:
             print(f"[select_callback] Ошибка при обработке '{value}': {e}")
             try:
-                await interaction.followup.send(f"❌ Произошла ошибка: `{e}`", ephemeral=True)
+                await interaction.followup.send(f"<:dnd_badge:1499472489112273077> Произошла ошибка: `{e}`", ephemeral=True)
             except Exception:
                 pass
 
@@ -894,20 +943,20 @@ class QuantityModal(discord.ui.Modal):
         self.add_item(self.qty_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # ✅ defer первым
+        # <:white_black_staff_badge:1499471650532360254> defer первым
         await interaction.response.defer(ephemeral=True)
 
         try:
             qty = int(str(self.qty_input))
         except ValueError:
-            await interaction.followup.send("❌ Введите число.", ephemeral=True)
+            await interaction.followup.send("<:dnd_badge:1499472489112273077> Введите число.", ephemeral=True)
             return
 
         guild = interaction.guild
         member = guild.get_member(self.author_id)
 
         if member is None:
-            await interaction.followup.send("❌ Не удалось найти игрока на сервере.", ephemeral=True)
+            await interaction.followup.send("<:dnd_badge:1499472489112273077> Не удалось найти игрока на сервере.", ephemeral=True)
             return
 
         if self.item_type == "case_relic":
@@ -925,10 +974,10 @@ class QuantityModal(discord.ui.Modal):
                 self.review_message, source_thread_id=self.source_thread_id
             )
             if success:
-                await interaction.followup.send(f"✅ **{item_name}** — списано {cost} 🪙", ephemeral=True)
+                await interaction.followup.send(f"<:white_black_staff_badge:1499471650532360254> **{item_name}** — списано {cost} 🪙", ephemeral=True)
         except Exception as e:
             print(f"[QuantityModal] Ошибка: {e}")
-            await interaction.followup.send(f"❌ Ошибка: `{e}`", ephemeral=True)
+            await interaction.followup.send(f"<:dnd_badge:1499472489112273077> Ошибка: `{e}`", ephemeral=True)
 
 
 # ─── HANDLERS ─────────────────────────────────────────────────────────────────
@@ -936,7 +985,7 @@ class QuantityModal(discord.ui.Modal):
 async def deduct_and_notify(interaction, member, cost, item_name, description, review_message, extra_fields=None, source_thread_id=None):
     current = db.get_points(member.id)
     if cost > 0 and current < cost:
-        await interaction.followup.send(f"❌ Недостаточно баллов. Нужно: {cost}, есть: {current}", ephemeral=True)
+        await interaction.followup.send(f"<:dnd_badge:1499472489112273077> Недостаточно баллов. Нужно: {cost}, есть: {current}", ephemeral=True)
         return False
 
     new_total = current - cost
@@ -956,7 +1005,7 @@ async def deduct_and_notify(interaction, member, cost, item_name, description, r
     embed_forum.set_footer(text=f"Администратор: {interaction.user.name}")
     await post_to_forum(guild, embed_forum, f"Покупка {item_name} — {member}")
 
-    embed_review = discord.Embed(title=f"✅ Покупка: {item_name}", color=0x57F287)
+    embed_review = discord.Embed(title=f"<:white_black_staff_badge:1499471650532360254> Покупка: {item_name}", color=0x57F287)
     embed_review.add_field(name="Игрок", value=member.mention, inline=True)
     embed_review.add_field(name="Списано", value=f"-{cost} 🪙", inline=True)
     embed_review.add_field(name="Новый баланс", value=f"{new_total} 🪙", inline=True)
@@ -989,7 +1038,7 @@ async def deduct_and_notify(interaction, member, cost, item_name, description, r
 async def process_simple(interaction, member, cost, item_name, description, review_message, source_thread_id=None):
     success = await deduct_and_notify(interaction, member, cost, item_name, description, review_message, source_thread_id=source_thread_id)
     if success:
-        await interaction.followup.send(f"✅ **{item_name}** обработана.", ephemeral=True)
+        await interaction.followup.send(f"<:white_black_staff_badge:1499471650532360254> **{item_name}** обработана.", ephemeral=True)
 
 
 async def process_warn_remove(interaction, member, review_message, source_thread_id=None):
@@ -998,7 +1047,7 @@ async def process_warn_remove(interaction, member, review_message, source_thread
     warn_count = sum(1 for rid in WARN_ROLES if rid in member_role_ids)
 
     if warn_count == 0:
-        await interaction.followup.send("❌ У игрока нет варнов.", ephemeral=True)
+        await interaction.followup.send("<:dnd_badge:1499472489112273077> У игрока нет варнов.", ephemeral=True)
         return
 
     role_to_remove = guild.get_role(WARN_ROLES[warn_count - 1])
@@ -1018,7 +1067,11 @@ async def process_warn_remove(interaction, member, review_message, source_thread
             embed = discord.Embed(title="🚫 Покупка снятия варна", color=0xED4245)
             embed.add_field(name="Варны", value=f"{new_count}/3", inline=True)
             await announce_ch.send(content=member.mention, embed=embed)
-        await interaction.followup.send("✅ Варн снят.", ephemeral=True)
+        
+        # Обновляем лидерборд варнов
+        await update_warn_leaderboard()
+        
+        await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Варн снят.", ephemeral=True)
 
 
 async def process_mute_remove(interaction, member, review_message, source_thread_id=None):
@@ -1027,7 +1080,7 @@ async def process_mute_remove(interaction, member, review_message, source_thread
     mute_count = sum(1 for rid in MUTE_ROLES if rid in member_role_ids)
 
     if mute_count == 0:
-        await interaction.followup.send("❌ У игрока нет устников.", ephemeral=True)
+        await interaction.followup.send("<:dnd_badge:1499472489112273077> У игрока нет устников.", ephemeral=True)
         return
 
     role_to_remove = guild.get_role(MUTE_ROLES[mute_count - 1])
@@ -1047,7 +1100,7 @@ async def process_mute_remove(interaction, member, review_message, source_thread
             embed = discord.Embed(title="🔇 Покупка снятия устника", color=0xF1C40F)
             embed.add_field(name="Устники", value=f"{new_count}/2", inline=True)
             await announce_ch.send(content=member.mention, embed=embed)
-        await interaction.followup.send("✅ Устник снят.", ephemeral=True)
+        await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Устник снят.", ephemeral=True)
 
 
 async def process_promotion(interaction, member, review_message, source_thread_id=None):
@@ -1060,10 +1113,10 @@ async def process_promotion(interaction, member, review_message, source_thread_i
             current_idx = i
 
     if current_idx == -1:
-        await interaction.followup.send("❌ У игрока нет штабной роли.", ephemeral=True)
+        await interaction.followup.send("<:dnd_badge:1499472489112273077> У игрока нет штабной роли.", ephemeral=True)
         return
     if current_idx >= len(STAFF_ROLES) - 1:
-        await interaction.followup.send("❌ У игрока максимальная роль.", ephemeral=True)
+        await interaction.followup.send("<:dnd_badge:1499472489112273077> У игрока максимальная роль.", ephemeral=True)
         return
 
     old_role = guild.get_role(STAFF_ROLES[current_idx])
@@ -1087,7 +1140,7 @@ async def process_promotion(interaction, member, review_message, source_thread_i
                 f"{member.mention} Был повышен до {new_role.mention if new_role else STAFF_NAMES[current_idx + 1]}\n"
                 f"Поздравим его! 🎉🎉🎉"
             )
-        await interaction.followup.send("✅ Повышение выполнено.", ephemeral=True)
+        await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Повышение выполнено.", ephemeral=True)
 
 
 async def process_bonus(interaction, member, role_id, item_name, cost, review_message, source_thread_id=None):
@@ -1097,7 +1150,7 @@ async def process_bonus(interaction, member, role_id, item_name, cost, review_me
         await member.add_roles(role)
     success = await deduct_and_notify(interaction, member, cost, item_name, "", review_message, source_thread_id=source_thread_id)
     if success:
-        await interaction.followup.send(f"✅ **{item_name}** выдан.", ephemeral=True)
+        await interaction.followup.send(f"<:white_black_staff_badge:1499471650532360254> **{item_name}** выдан.", ephemeral=True)
 
 
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -1131,7 +1184,7 @@ class SalaryReviewView(discord.ui.View):
         self.author_id = author_id
         self.source_thread_id = source_thread_id
 
-    @discord.ui.button(label="✅ Одобрить", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="<:white_black_staff_badge:1499471650532360254> Одобрить", style=discord.ButtonStyle.success)
     async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
@@ -1144,15 +1197,15 @@ class SalaryReviewView(discord.ui.View):
             self.source_thread_id,
             self.author_id,
             approved=True,
-            title="✅ Заявка на зарплату одобрена",
+            title="<:white_black_staff_badge:1499471650532360254> Заявка на зарплату одобрена",
             details="Для выдачи зарплаты обратитесь к администрации.",
             admin_name=str(interaction.user)
         )
 
         await disable_buttons(interaction.message)
-        await interaction.followup.send("✅ Заявка на зарплату одобрена.", ephemeral=True)
+        await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Заявка на зарплату одобрена.", ephemeral=True)
 
-    @discord.ui.button(label="❌ Отклонить", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="<:dnd_badge:1499472489112273077> Отклонить", style=discord.ButtonStyle.danger)
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = SalaryRejectModal(
             author_id=self.author_id,
@@ -1179,13 +1232,13 @@ class SalaryRejectModal(discord.ui.Modal, title="Причина отклонен
             self.source_thread_id,
             self.author_id,
             approved=False,
-            title="❌ Заявка на зарплату отклонена",
+            title="<:dnd_badge:1499472489112273077> Заявка на зарплату отклонена",
             details=str(self.reason),
             admin_name=str(interaction.user)
         )
 
         await disable_buttons(self.review_message)
-        await interaction.followup.send("✅ Заявка отклонена.", ephemeral=True)
+        await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Заявка отклонена.", ephemeral=True)
 
 
 # ─── DAY OFF APPLICATION VIEWS ────────────────────────────────────────────────
@@ -1196,7 +1249,7 @@ class DayoffReviewView(discord.ui.View):
         self.author_id = author_id
         self.source_thread_id = source_thread_id
 
-    @discord.ui.button(label="✅ Одобрить", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="<:white_black_staff_badge:1499471650532360254> Одобрить", style=discord.ButtonStyle.success)
     async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = DayoffApproveModal(
             author_id=self.author_id,
@@ -1205,7 +1258,7 @@ class DayoffReviewView(discord.ui.View):
         )
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="❌ Отклонить", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="<:dnd_badge:1499472489112273077> Отклонить", style=discord.ButtonStyle.danger)
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = DayoffRejectModal(
             author_id=self.author_id,
@@ -1236,18 +1289,18 @@ class DayoffApproveModal(discord.ui.Modal, title="Одобрение отгул�
         try:
             days_count = int(str(self.days))
         except ValueError:
-            await interaction.followup.send("❌ Введите число.", ephemeral=True)
+            await interaction.followup.send("<:dnd_badge:1499472489112273077> Введите число.", ephemeral=True)
             return
 
         if days_count <= 0:
-            await interaction.followup.send("❌ Количество дней должно быть больше 0.", ephemeral=True)
+            await interaction.followup.send("<:dnd_badge:1499472489112273077> Количество дней должно быть больше 0.", ephemeral=True)
             return
 
         guild = interaction.guild
         member = guild.get_member(self.author_id)
 
         if not member:
-            await interaction.followup.send("❌ Игрок не найден на сервере.", ephemeral=True)
+            await interaction.followup.send("<:dnd_badge:1499472489112273077> Игрок не найден на сервере.", ephemeral=True)
             return
 
         print(f"[DayoffApproveModal] Выдаем роль отгула для {member}")
@@ -1281,7 +1334,7 @@ class DayoffApproveModal(discord.ui.Modal, title="Одобрение отгул�
             self.source_thread_id,
             self.author_id,
             approved=True,
-            title="✅ Заявка на отгул одобрена",
+            title="<:white_black_staff_badge:1499471650532360254> Заявка на отгул одобрена",
             details=f"Отгул выдан на **{days_count} дней**\nС {start_str} по {end_str}",
             admin_name=str(interaction.user)
         )
@@ -1294,7 +1347,7 @@ class DayoffApproveModal(discord.ui.Modal, title="Одобрение отгул�
         print(f"[DayoffApproveModal] Планируем снятие роли через {days_count} дней")
         asyncio.create_task(schedule_dayoff_removal(self.author_id, days_count))
 
-        await interaction.followup.send(f"✅ Отгул одобрен на **{days_count} дней** (до {end_str}). Роль выдана.", ephemeral=True)
+        await interaction.followup.send(f"<:white_black_staff_badge:1499471650532360254> Отгул одобрен на **{days_count} дней** (до {end_str}). Роль выдана.", ephemeral=True)
         print(f"[DayoffApproveModal] Завершено успешно")
 
 
@@ -1315,13 +1368,13 @@ class DayoffRejectModal(discord.ui.Modal, title="Причина отклонен
             self.source_thread_id,
             self.author_id,
             approved=False,
-            title="❌ Заявка на отгул отклонена",
+            title="<:dnd_badge:1499472489112273077> Заявка на отгул отклонена",
             details=str(self.reason),
             admin_name=str(interaction.user)
         )
 
         await disable_buttons(self.review_message)
-        await interaction.followup.send("✅ Заявка отклонена.", ephemeral=True)
+        await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Заявка отклонена.", ephemeral=True)
 
 
 # ─── PROMOTION APPLICATION VIEWS ──────────────────────────────────────────────
@@ -1332,7 +1385,7 @@ class PromotionAppReviewView(discord.ui.View):
         self.author_id = author_id
         self.source_thread_id = source_thread_id
 
-    @discord.ui.button(label="✅ Одобрить", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="<:white_black_staff_badge:1499471650532360254> Одобрить", style=discord.ButtonStyle.success)
     async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
@@ -1340,7 +1393,7 @@ class PromotionAppReviewView(discord.ui.View):
         member = guild.get_member(self.author_id)
 
         if not member:
-            await interaction.followup.send("❌ Игрок не найден на сервере.", ephemeral=True)
+            await interaction.followup.send("<:dnd_badge:1499472489112273077> Игрок не найден на сервере.", ephemeral=True)
             return
 
         member_role_ids = [r.id for r in member.roles]
@@ -1350,10 +1403,10 @@ class PromotionAppReviewView(discord.ui.View):
                 current_idx = i
 
         if current_idx == -1:
-            await interaction.followup.send("❌ У игрока нет штабной роли.", ephemeral=True)
+            await interaction.followup.send("<:dnd_badge:1499472489112273077> У игрока нет штабной роли.", ephemeral=True)
             return
         if current_idx >= len(STAFF_ROLES) - 1:
-            await interaction.followup.send("❌ У игрока максимальная роль.", ephemeral=True)
+            await interaction.followup.send("<:dnd_badge:1499472489112273077> У игрока максимальная роль.", ephemeral=True)
             return
 
         old_role = guild.get_role(STAFF_ROLES[current_idx])
@@ -1378,15 +1431,15 @@ class PromotionAppReviewView(discord.ui.View):
             self.source_thread_id,
             self.author_id,
             approved=True,
-            title="✅ Заявка на повышение одобрена",
+            title="<:white_black_staff_badge:1499471650532360254> Заявка на повышение одобрена",
             details=f"Вы повышены до {new_role.mention if new_role else STAFF_NAMES[current_idx + 1]}!",
             admin_name=str(interaction.user)
         )
 
         await disable_buttons(interaction.message)
-        await interaction.followup.send(f"✅ {member.mention} повышен до **{new_role.mention if new_role else STAFF_NAMES[current_idx + 1]}**!", ephemeral=True)
+        await interaction.followup.send(f"<:white_black_staff_badge:1499471650532360254> {member.mention} повышен до **{new_role.mention if new_role else STAFF_NAMES[current_idx + 1]}**!", ephemeral=True)
 
-    @discord.ui.button(label="❌ Отклонить", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="<:dnd_badge:1499472489112273077> Отклонить", style=discord.ButtonStyle.danger)
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = PromotionAppRejectModal(
             author_id=self.author_id,
@@ -1413,13 +1466,13 @@ class PromotionAppRejectModal(discord.ui.Modal, title="Причина откло
             self.source_thread_id,
             self.author_id,
             approved=False,
-            title="❌ Заявка на повышение отклонена",
+            title="<:dnd_badge:1499472489112273077> Заявка на повышение отклонена",
             details=str(self.reason),
             admin_name=str(interaction.user)
         )
 
         await disable_buttons(self.review_message)
-        await interaction.followup.send("✅ Заявка отклонена.", ephemeral=True)
+        await interaction.followup.send("<:white_black_staff_badge:1499471650532360254> Заявка отклонена.", ephemeral=True)
 
 
 # ─── HELPER FOR THREAD NOTIFICATIONS ──────────────────────────────────────────
@@ -1647,6 +1700,79 @@ async def update_dayoff_leaderboard():
     
     except Exception as e:
         print(f"[update_dayoff_leaderboard] Ошибка: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+async def update_warn_leaderboard():
+    """Обновляет сообщение со списком варнов"""
+    try:
+        channel = bot.get_channel(WARN_LEADERBOARD_CHANNEL)
+        if not channel:
+            print(f"[update_warn_leaderboard] Канал {WARN_LEADERBOARD_CHANNEL} не найден")
+            return
+
+        guild = channel.guild
+        
+        # Собираем всех игроков с варнами
+        warn_players = []
+        for member in guild.members:
+            if member.bot:
+                continue
+            
+            member_role_ids = [r.id for r in member.roles]
+            warn_count = sum(1 for rid in WARN_ROLES if rid in member_role_ids)
+            
+            if warn_count > 0:
+                warn_players.append((member, warn_count))
+        
+        print(f"[update_warn_leaderboard] Найдено {len(warn_players)} игроков с варнами")
+
+        # Формируем embed
+        embed = discord.Embed(
+            title="🚫 Список варнов",
+            description="Игроки с активными варнами",
+            color=0xED4245
+        )
+
+        if warn_players:
+            # Сортируем по количеству варнов (больше варнов - выше)
+            warn_players.sort(key=lambda x: x[1], reverse=True)
+            
+            warn_list = []
+            for member, warn_count in warn_players:
+                warn_emoji = "🔴" * warn_count
+                warn_list.append(f"{member.mention} — {warn_emoji} **{warn_count}/3**")
+            
+            embed.add_field(
+                name="Игроки с варнами",
+                value="\n".join(warn_list),
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="Пусто",
+                value="Нет игроков с варнами",
+                inline=False
+            )
+
+        embed.set_footer(text="Обновляется автоматически")
+
+        # Ищем существующее сообщение или создаем новое
+        messages = [msg async for msg in channel.history(limit=10)]
+        bot_messages = [msg for msg in messages if msg.author == bot.user and msg.embeds and msg.embeds[0].title == "🚫 Список варнов"]
+
+        if bot_messages:
+            # Обновляем последнее сообщение бота
+            await bot_messages[0].edit(embed=embed)
+            print(f"[update_warn_leaderboard] Лидерборд варнов обновлен")
+        else:
+            # Создаем новое сообщение
+            await channel.send(embed=embed)
+            print(f"[update_warn_leaderboard] Лидерборд варнов создан")
+    
+    except Exception as e:
+        print(f"[update_warn_leaderboard] Ошибка: {e}")
         import traceback
         traceback.print_exc()
 
