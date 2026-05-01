@@ -1226,7 +1226,7 @@ async def process_promotion(interaction, member, review_message, source_thread_i
         await member.add_roles(new_role)
 
     success = await deduct_and_notify(
-        interaction, member, 300, "⬆️ Повышение без нормы", "",
+        interaction, member, 500, "⬆️ Повышение без нормы", "",
         review_message,
         extra_fields=[("Новая роль", new_role.mention if new_role else STAFF_NAMES[current_idx + 1])],
         source_thread_id=source_thread_id
