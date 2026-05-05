@@ -40,6 +40,7 @@ LEADERBOARD_CHANNEL = 1441724727910469633
 DAYOFF_LEADERBOARD_CHANNEL = 1496230104756523099
 WARN_LEADERBOARD_CHANNEL = 1473657044899856414
 MUTE_LEADERBOARD_CHANNEL = 1499487138792870018
+ROSTER_LEADERBOARD_CHANNEL = 1501263934752297030
 
 # Commands channel
 COMMANDS_CHANNEL = 1499413386411114710
@@ -160,6 +161,12 @@ async def on_ready():
         print("✅ Лидерборд устников обновлен!")
     except Exception as e:
         print(f"❌ Ошибка обновления лидерборда устников: {e}")
+
+    try:
+        await update_roster_leaderboard()
+        print("✅ Список состава обновлен!")
+    except Exception as e:
+        print(f"❌ Ошибка обновления списка состава: {e}")
     
     try:
         await restore_dayoff_timers()
@@ -229,6 +236,10 @@ async def on_member_update(before: discord.Member, after: discord.Member):
             await move_staff_channel(before, after)
         except Exception as e:
             print(f"[on_member_update] Ошибка перемещения канала: {e}")
+        try:
+            await update_roster_leaderboard()
+        except Exception as e:
+            print(f"[on_member_update] Ошибка обновления состава: {e}")
 
     # Dayoff роль
     if DAYOFF_ROLE in changed:
@@ -273,7 +284,8 @@ async def move_staff_channel(before: discord.Member, after: discord.Member):
         return
 
     # Ищем канал по display_name участника в старой категории
-    display_name = after.display_name.lower()
+    # Ник на сервере формата "ник | имя" — берём только часть до "|"
+    display_name = after.display_name.split("|")[0].strip().lower()
     target_channel = None
     for ch in old_category.channels:
         if display_name in ch.name.lower():
@@ -823,6 +835,9 @@ HELPER_ROLE_GRIEF_1 = 1434471470326747146
 HELPER_ROLE_GRIEF_2 = 1471547081196835018
 HELPER_ROLE_REMOVE  = 1429895978931978276  # роль которая снимается
 
+# Роли с доступом к команде /хелпер (помимо ALLOWED_COMMAND_ROLES)
+HIRE_HELPER_ROLES = [1452006848570982551]
+
 
 @bot.tree.command(name="хелпер", description="Принять игрока на должность хелпера")
 @app_commands.describe(
@@ -843,7 +858,8 @@ async def hire_helper(
     гриф: app_commands.Choice[int]
 ):
     user_role_ids = [role.id for role in interaction.user.roles]
-    if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
+    allowed = ALLOWED_COMMAND_ROLES + HIRE_HELPER_ROLES
+    if not any(role_id in allowed for role_id in user_role_ids):
         await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
         return
 
@@ -971,6 +987,17 @@ async def update_mute_leaderboard_command(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     await update_mute_leaderboard()
     await interaction.followup.send("✅ Список устников обновлен!", ephemeral=True)
+
+
+@bot.tree.command(name="состав_обновить", description="Обновить список состава вручную")
+async def update_roster_command(interaction: discord.Interaction):
+    user_role_ids = [role.id for role in interaction.user.roles]
+    if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
+        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    await update_roster_leaderboard()
+    await interaction.followup.send("✅ Список состава обновлен!", ephemeral=True)
 
 
 @bot.tree.command(name="отгул_снять", description="Снять отгул у игрока досрочно")
@@ -1815,6 +1842,67 @@ async def notify_in_thread(forum_id: int, thread_id: int, author_id: int, approv
 
 
 # ─── LEADERBOARD ──────────────────────────────────────────────────────────────
+
+async def update_roster_leaderboard():
+    """Обновляет список состава — все участники со штатными ролями, сгруппированные по ролям."""
+    try:
+        channel = bot.get_channel(ROSTER_LEADERBOARD_CHANNEL)
+        if not channel:
+            print(f"[update_roster_leaderboard] Канал {ROSTER_LEADERBOARD_CHANNEL} не найден")
+            return
+
+        guild = channel.guild
+
+        # Собираем участников по штатным ролям (от высшей к низшей)
+        role_groups = {}
+        for i, rid in enumerate(STAFF_ROLES):
+            role = guild.get_role(rid)
+            if not role:
+                continue
+            members = [m for m in role.members]
+            if members:
+                role_groups[i] = (role, members)
+
+        embed = discord.Embed(
+            title="👥 Состав команды",
+            color=0x5865F2
+        )
+
+        # От высшей роли к низшей
+        for i in reversed(range(len(STAFF_ROLES))):
+            if i not in role_groups:
+                continue
+            role, members = role_groups[i]
+            lines = [f"{idx + 1}. {m.mention}" for idx, m in enumerate(members)]
+            embed.add_field(
+                name=f"{role.mention} — {len(members)} чел.",
+                value="\n".join(lines) or "—",
+                inline=False
+            )
+
+        if not role_groups:
+            embed.description = "Штат пуст."
+
+        embed.set_footer(text="Обновляется автоматически")
+
+        messages = [msg async for msg in channel.history(limit=10)]
+        bot_messages = [
+            msg for msg in messages
+            if msg.author == bot.user and msg.embeds and msg.embeds[0].title == "👥 Состав команды"
+        ]
+
+        if bot_messages:
+            await bot_messages[0].edit(embed=embed)
+            print("[update_roster_leaderboard] Состав обновлён")
+        else:
+            await channel.send(embed=embed)
+            print("[update_roster_leaderboard] Состав создан")
+
+    except Exception as e:
+        print(f"[update_roster_leaderboard] Ошибка: {e}")
+        import traceback
+        traceback.print_exc()
+
 
 async def update_leaderboard():
     try:
