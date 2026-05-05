@@ -1875,7 +1875,7 @@ async def update_roster_leaderboard():
             role, members = role_groups[i]
             lines = [f"{idx + 1}. {m.mention}" for idx, m in enumerate(members)]
             embed.add_field(
-                name=f"{role.mention} — {len(members)} чел.",
+                name=f"**{STAFF_NAMES[i]}** — {len(members)} чел.",
                 value="\n".join(lines) or "—",
                 inline=False
             )
@@ -1892,11 +1892,9 @@ async def update_roster_leaderboard():
         ]
 
         if bot_messages:
-            await bot_messages[0].edit(embed=embed)
-            print("[update_roster_leaderboard] Состав обновлён")
-        else:
-            await channel.send(embed=embed)
-            print("[update_roster_leaderboard] Состав создан")
+            await bot_messages[0].delete()
+        await channel.send(embed=embed)
+        print("[update_roster_leaderboard] Состав обновлён")
 
     except Exception as e:
         print(f"[update_roster_leaderboard] Ошибка: {e}")
