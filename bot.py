@@ -2490,3 +2490,7 @@ async def restore_dayoff_timers():
             print(f"[restore_dayoff_timers] Ошибка для user_id={user_id}: {e}")
 
     await update_dayoff_leaderboard()
+    await update_dayoff_leaderboard()
+
+
+bot.run(os.getenv("DISCORD_TOKEN"))
