@@ -361,7 +361,7 @@ async def detect_application_type(text: str) -> str:
     try:
         response = await asyncio.to_thread(
             lambda: claude.messages.create(
-                model="claude-3-5-haiku-20241022",
+                model="claude-haiku-4-5",
                 max_tokens=10,
                 messages=[{"role": "user", "content": (
                     "Определи тип заявки. Если в тексте есть 'количество наказаний' или 'дата' — это 'accrual'. "
@@ -383,7 +383,7 @@ async def auto_check_purchase_application(text: str, author, guild) -> dict | No
     try:
         response = await asyncio.to_thread(
             lambda: claude.messages.create(
-                model="claude-3-5-haiku-20241022",
+                model="claude-haiku-4-5",
                 max_tokens=100,
                 messages=[{"role": "user", "content": (
                     "Из текста заявки на покупку извлеки:\n"
@@ -482,7 +482,7 @@ async def auto_check_points_application(text: str, author, guild) -> dict | None
     try:
         response = await asyncio.to_thread(
             lambda: claude.messages.create(
-                model="claude-3-5-haiku-20241022",
+                model="claude-haiku-4-5",
                 max_tokens=200,
                 messages=[{"role": "user", "content": prompt}]
             )
