@@ -355,28 +355,15 @@ SHOP_ITEMS_MAP = {
 
 
 async def detect_application_type(text: str) -> str:
-    """Определяет тип заявки: 'accrual', 'purchase' или 'unknown'."""
-    if not claude:
-        return "unknown"
-    try:
-        response = await asyncio.to_thread(
-            lambda: claude.messages.create(
-                model="claude-haiku-4-5",
-                max_tokens=10,
-                messages=[{"role": "user", "content": (
-                    "Определи тип заявки Discord бота по тексту.\n"
-                    "Заявка на ЗАЧИСЛЕНИЕ БАЛЛОВ: содержит 3 пункта — ник, число наказаний/количество, дату. Пример: '1. PlayerNick\n2. 10\n3. 06.05'\n"
-                    "Заявка на ПОКУПКУ: содержит 2 пункта — ник и номер товара. Пример: '1. PlayerNick\n2. 3'\n"
-                    "Если 3 пункта (ник + число + дата) — это 'accrual'.\n"
-                    "Если 2 пункта (ник + номер товара) — это 'purchase'.\n"
-                    "Ответь ТОЛЬКО одним словом: accrual, purchase или unknown.\n\n"
-                    f"Текст:\n{text}"
-                )}]
-            )
-        )
-        return response.content[0].text.strip().lower()
-    except Exception:
-        return "unknown"
+    """Определяет тип заявки по структуре текста без Claude."""
+    import re
+    # Ищем пункты вида "1.", "2.", "3." и т.д.
+    points = re.findall(r'^\s*\d+[\.\)]\s*.+', text, re.MULTILINE)
+    if len(points) >= 3:
+        return "accrual"
+    elif len(points) == 2:
+        return "purchase"
+    return "unknown"
 
 
 async def auto_check_purchase_application(text: str, author, guild) -> dict | None:
