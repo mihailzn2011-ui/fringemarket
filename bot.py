@@ -2467,4 +2467,26 @@ async def restore_dayoff_timers():
     for user_id, dayoff_info in all_dayoffs.items():
         try:
             end_date_str = dayoff_info.get("end_date", "")
-            end_date = datetime.strptime(end_d 
+            end_date = datetime.strptime(end_date_str, "%d.%m.%Y")
+            time_left = (end_date - current_date).total_seconds()
+            if time_left > 0:
+                days_left = time_left / 86400
+                asyncio.create_task(schedule_dayoff_removal(user_id, days_left))
+                print(f"[restore_dayoff_timers] Восстановлен таймер для user_id={user_id}, осталось {days_left:.1f} дней")
+            else:
+                guild = None
+                for g in bot.guilds:
+                    guild = g
+                    break
+                if guild:
+                    member = guild.get_member(user_id)
+                    if member:
+                        dayoff_role = guild.get_role(DAYOFF_ROLE)
+                        if dayoff_role and dayoff_role in member.roles:
+                            await member.remove_roles(dayoff_role)
+                db.remove_dayoff(user_id)
+                print(f"[restore_dayoff_timers] Отгул истёк для user_id={user_id}, роль снята")
+        except Exception as e:
+            print(f"[restore_dayoff_timers] Ошибка для user_id={user_id}: {e}")
+
+    await update_dayoff_leaderboard()
