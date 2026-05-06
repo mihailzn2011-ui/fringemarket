@@ -5,7 +5,13 @@ import asyncio
 import os
 from dotenv import load_dotenv
 from db import DBManager
-import anthropic
+
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+    print("⚠️ anthropic не установлен — автопроверка заявок отключена")
 
 load_dotenv()
 
@@ -16,7 +22,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 db = DBManager()
-claude = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+claude = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY")) if ANTHROPIC_AVAILABLE else None
 
 # Channel IDs
 WATCH_CHANNEL = 1429899592824258590
@@ -350,6 +356,8 @@ SHOP_ITEMS_MAP = {
 
 async def detect_application_type(text: str) -> str:
     """Определяет тип заявки: 'accrual', 'purchase' или 'unknown'."""
+    if not claude:
+        return "unknown"
     try:
         response = await asyncio.to_thread(
             lambda: claude.messages.create(
@@ -370,6 +378,8 @@ async def detect_application_type(text: str) -> str:
 
 async def auto_check_purchase_application(text: str, author, guild) -> dict | None:
     """Парсит заявку на покупку через Claude и обрабатывает если возможно."""
+    if not claude:
+        return None
     try:
         response = await asyncio.to_thread(
             lambda: claude.messages.create(
@@ -444,6 +454,8 @@ async def auto_check_points_application(text: str, author, guild) -> dict | None
     считает сообщения за период и сравнивает с заявленным числом.
     Возвращает dict с ключами: match, claimed, actual, points, summary
     """
+    if not claude:
+        return None
     from datetime import datetime, timezone
 
     # 1. Парсим заявку через Claude
