@@ -22,7 +22,10 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 db = DBManager()
-claude = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY")) if ANTHROPIC_AVAILABLE else None
+claude = anthropic.Anthropic(
+    api_key=os.getenv("ANTHROPIC_API_KEY"),
+    base_url="https://api.claudexia.tech"
+) if ANTHROPIC_AVAILABLE else None
 
 # Channel IDs
 WATCH_CHANNEL = 1429899592824258590
