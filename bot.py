@@ -5,6 +5,7 @@ import asyncio
 import os
 from dotenv import load_dotenv
 from db import DBManager
+import anthropic
 
 load_dotenv()
 
@@ -15,6 +16,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 db = DBManager()
+claude = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 # Channel IDs
 WATCH_CHANNEL = 1429899592824258590
@@ -330,6 +332,236 @@ async def set_thread_tag(forum_id: int, thread_id: int, tags: dict, status: str)
         print(f"[set_thread_tag] Ошибка: {e}")
 
 
+# ─── AUTO CHECK POINTS APPLICATION ───────────────────────────────────────────
+
+# Список товаров магазина с номерами и стоимостью
+SHOP_ITEMS_MAP = {
+    "1": ("warn_remove",   "🚫 Снятие варна",           None),
+    "2": ("mute_remove",   "🔇 Снятие устника",          None),
+    "3": ("donate_helper", "💎 Донат Helper на твинк",   80),
+    "4": ("kit",           "🎁 Кит",                     65),
+    "5": ("case_relic",    "📦 Кейс с Рилликами",        None),
+    "6": ("relics",        "✨ Рилики",                   None),
+    "7": ("promote",       "⬆️ Повышение без нормы",     None),
+    "8": ("bonus_salary",  "💸 Бонус к зарплате",        200),
+    "9": ("bonus_points",  "⭐ Бонус к баллам",           200),
+}
+
+
+async def detect_application_type(text: str) -> str:
+    """Определяет тип заявки: 'accrual', 'purchase' или 'unknown'."""
+    try:
+        response = await asyncio.to_thread(
+            lambda: claude.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=10,
+                messages=[{"role": "user", "content": (
+                    "Определи тип заявки. Если в тексте есть 'количество наказаний' или 'дата' — это 'accrual'. "
+                    "Если есть 'товар' или 'номер товара' — это 'purchase'. Иначе — 'unknown'. "
+                    "Ответь ТОЛЬКО одним словом: accrual, purchase или unknown.\n\n"
+                    f"Текст:\n{text}"
+                )}]
+            )
+        )
+        return response.content[0].text.strip().lower()
+    except Exception:
+        return "unknown"
+
+
+async def auto_check_purchase_application(text: str, author, guild) -> dict | None:
+    """Парсит заявку на покупку через Claude и обрабатывает если возможно."""
+    try:
+        response = await asyncio.to_thread(
+            lambda: claude.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=100,
+                messages=[{"role": "user", "content": (
+                    "Из текста заявки на покупку извлеки:\n"
+                    "- nickname: ник игрока\n"
+                    "- item_number: номер товара (цифра)\n"
+                    "Ответь ТОЛЬКО валидным JSON без пояснений:\n"
+                    '{"nickname": "...", "item_number": "1"}\n\n'
+                    f"Текст:\n{text}"
+                )}]
+            )
+        )
+        import json
+        parsed = json.loads(response.content[0].text.strip())
+    except Exception as e:
+        print(f"[auto_check_purchase] Claude ошибка: {e}")
+        return None
+
+    nickname = parsed.get("nickname")
+    item_number = str(parsed.get("item_number", "")).strip()
+
+    if not nickname or item_number not in SHOP_ITEMS_MAP:
+        return {"success": False, "error": f"Не удалось определить товар (номер: {item_number}) — проверьте вручную"}
+
+    item_value, item_name, item_cost = SHOP_ITEMS_MAP[item_number]
+
+    # Товары которые требуют доп. данных или ручной обработки
+    manual_items = {"warn_remove", "mute_remove", "case_relic", "relics", "promote"}
+    if item_value in manual_items:
+        return {"success": False, "error": f"Товар **{item_name}** требует ручной обработки"}
+
+    if item_cost is None:
+        return {"success": False, "error": f"Стоимость товара **{item_name}** не определена"}
+
+    # Ищем участника по нику
+    member = None
+    if author:
+        member = guild.get_member(author.id)
+
+    if not member:
+        return {"success": False, "error": f"Игрок не найден на сервере"}
+
+    # Проверяем баланс
+    current = db.get_points(member.id)
+    if current < item_cost:
+        return {
+            "success": False,
+            "error": f"Недостаточно баллов для **{item_name}**\nНужно: **{item_cost} 🪙** | Баланс: **{current} 🪙**"
+        }
+
+    # Списываем баллы
+    new_total = current - item_cost
+    db.set_points(member.id, new_total, str(member))
+
+    return {
+        "success": True,
+        "details": (
+            f"Товар: **{item_name}**\n"
+            f"Списано: **-{item_cost} 🪙**\n"
+            f"Новый баланс: **{new_total} 🪙**\n"
+            f"Для выдачи товара обратитесь к администрации."
+        )
+    }
+
+
+async def auto_check_points_application(text: str, author, guild) -> dict | None:
+    """
+    Парсит заявку на баллы через Claude, находит канал игрока,
+    считает сообщения за период и сравнивает с заявленным числом.
+    Возвращает dict с ключами: match, claimed, actual, points, summary
+    """
+    from datetime import datetime, timezone
+
+    # 1. Парсим заявку через Claude
+    prompt = f"""Ты парсер заявок на баллы для Discord бота. Из текста заявки извлеки:
+- nickname: ник игрока (строка)
+- count: количество наказаний (целое число)  
+- date_from: дата начала периода в формате DD.MM.YYYY
+- date_to: дата конца периода в формате DD.MM.YYYY
+
+Сегодня: {datetime.now().strftime('%d.%m.%Y')}
+
+Правила:
+- "за сегодня" = сегодняшняя дата для обоих полей
+- "за неделю" = последние 7 дней
+- если одна дата = она же для date_from и date_to
+- если не можешь определить поле = null
+
+Ответь ТОЛЬКО валидным JSON без пояснений:
+{{"nickname": "...", "count": 0, "date_from": "DD.MM.YYYY", "date_to": "DD.MM.YYYY"}}
+
+Текст заявки:
+{text}"""
+
+    try:
+        response = await asyncio.to_thread(
+            lambda: claude.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=200,
+                messages=[{"role": "user", "content": prompt}]
+            )
+        )
+        import json
+        parsed = json.loads(response.content[0].text.strip())
+    except Exception as e:
+        print(f"[auto_check] Claude ошибка парсинга: {e}")
+        return None
+
+    nickname = parsed.get("nickname")
+    claimed_count = parsed.get("count")
+    date_from_str = parsed.get("date_from")
+    date_to_str = parsed.get("date_to")
+
+    if not all([nickname, claimed_count is not None, date_from_str, date_to_str]):
+        return None
+
+    # 2. Парсим даты
+    try:
+        date_from = datetime.strptime(date_from_str, "%d.%m.%Y").replace(tzinfo=timezone.utc)
+        date_to = datetime.strptime(date_to_str, "%d.%m.%Y").replace(
+            hour=23, minute=59, second=59, tzinfo=timezone.utc
+        )
+    except Exception:
+        return None
+
+    # 3. Ищем канал игрока по нику во всех штатных категориях
+    target_channel = None
+    nick_lower = nickname.lower()
+    for cat_id in STAFF_CATEGORIES:
+        category = guild.get_channel(cat_id)
+        if not category:
+            continue
+        for ch in category.channels:
+            if nick_lower in ch.name.lower():
+                target_channel = ch
+                break
+        if target_channel:
+            break
+
+    if not target_channel:
+        return {
+            "match": False,
+            "claimed": claimed_count,
+            "actual": None,
+            "points": round(claimed_count * 1.5),
+            "summary": (
+                f"Ник: **{nickname}** | Заявлено: **{claimed_count}** наказаний\n"
+                f"Период: {date_from_str} — {date_to_str}\n"
+                f"⚠️ Канал игрока не найден — проверьте вручную"
+            )
+        }
+
+    # 4. Считаем сообщения за период
+    actual_count = 0
+    try:
+        async for msg in target_channel.history(limit=2000, after=date_from, before=date_to):
+            if msg.author == author or (author and msg.author.id == author.id):
+                actual_count += 1
+    except Exception as e:
+        print(f"[auto_check] Ошибка чтения истории: {e}")
+        return None
+
+    # 5. Сравниваем
+    match = actual_count == claimed_count
+    points = round(actual_count * 1.5)
+
+    if match:
+        summary = (
+            f"Ник: **{nickname}** | Период: {date_from_str} — {date_to_str}\n"
+            f"Заявлено: **{claimed_count}** | Найдено: **{actual_count}** ✅\n"
+            f"К начислению: **{points} 🪙**"
+        )
+    else:
+        summary = (
+            f"Ник: **{nickname}** | Период: {date_from_str} — {date_to_str}\n"
+            f"Заявлено: **{claimed_count}** | Найдено в канале: **{actual_count}** ⚠️\n"
+            f"Расхождение! К начислению по факту: **{points} 🪙**"
+        )
+
+    return {
+        "match": match,
+        "claimed": claimed_count,
+        "actual": actual_count,
+        "points": points,
+        "summary": summary,
+        "channel": target_channel.name
+    }
+
+
 async def handle_points_thread(thread: discord.Thread):
     await asyncio.sleep(1.5)
     try:
@@ -345,17 +577,88 @@ async def handle_points_thread(thread: discord.Thread):
     content = starter.content if starter else ""
     attachment_url = starter.attachments[0].url if starter and starter.attachments else None
 
-    embed = discord.Embed(
-        title=f"📋 {thread.name}",
-        description=content or "*Без текста*",
-        color=0x5865F2
-    )
+    # Определяем тип заявки через Claude и пробуем автообработать
+    if content:
+        try:
+            app_type = await detect_application_type(content)
+
+            if app_type == "accrual":
+                result = await auto_check_points_application(content, author, thread.guild)
+                if result and result["match"] and result["actual"] is not None:
+                    # Всё сошлось — автоначисляем без отправки в канал
+                    member = thread.guild.get_member(thread.owner_id)
+                    points = result["points"]
+                    current = db.get_points(thread.owner_id)
+                    new_total = current + points
+                    db.set_points(thread.owner_id, new_total, str(member) if member else "")
+                    await set_thread_tag(WATCH_CHANNEL, thread.id, TAGS_POINTS, "approved")
+                    await notify_author_in_thread(
+                        thread.id, thread.owner_id,
+                        approved=True,
+                        details=f"Автопроверка прошла ✅\nНачислено **+{points} 🪙**\nНовый баланс: **{new_total} 🪙**",
+                        admin_name="Автосистема"
+                    )
+                    await update_leaderboard()
+                    print(f"[auto_check] Заявка {thread.id} автоодобрена: {points} баллов")
+                    return  # не отправляем в канал проверки
+
+                # Расхождение или канал не найден — отправляем в канал с пометкой
+                embed = discord.Embed(title=f"📋 {thread.name}", description=content or "*Без текста*", color=0x5865F2)
+                if author:
+                    embed.set_author(name=str(author), icon_url=author.display_avatar.url)
+                embed.set_footer(text=f"ID автора: {thread.owner_id} | Тред: {thread.id}")
+                if attachment_url:
+                    embed.set_image(url=attachment_url)
+                if result:
+                    embed.add_field(name="⚠️ Автопроверка", value=result["summary"], inline=False)
+                else:
+                    embed.add_field(name="⚠️ Автопроверка", value="Не удалось распарсить заявку — проверьте вручную", inline=False)
+                view = ReviewView(author_id=thread.owner_id, source_thread_id=thread.id)
+                await review_channel.send(embed=embed, view=view)
+                await set_thread_tag(WATCH_CHANNEL, thread.id, TAGS_POINTS, "pending")
+                return
+
+            elif app_type == "purchase":
+                result = await auto_check_purchase_application(content, author, thread.guild)
+                if result and result.get("success"):
+                    # Автопокупка прошла
+                    await set_thread_tag(WATCH_CHANNEL, thread.id, TAGS_POINTS, "approved")
+                    await notify_author_in_thread(
+                        thread.id, thread.owner_id,
+                        approved=True,
+                        details=f"Автопроверка прошла ✅\n{result['details']}",
+                        admin_name="Автосистема"
+                    )
+                    await update_leaderboard()
+                    print(f"[auto_check] Покупка {thread.id} автоодобрена")
+                    return
+
+                # Не смогли обработать — в канал
+                embed = discord.Embed(title=f"📋 {thread.name}", description=content or "*Без текста*", color=0x5865F2)
+                if author:
+                    embed.set_author(name=str(author), icon_url=author.display_avatar.url)
+                embed.set_footer(text=f"ID автора: {thread.owner_id} | Тред: {thread.id}")
+                if attachment_url:
+                    embed.set_image(url=attachment_url)
+                if result and result.get("error"):
+                    embed.add_field(name="⚠️ Автопроверка", value=result["error"], inline=False)
+                else:
+                    embed.add_field(name="⚠️ Автопроверка", value="Не удалось распарсить заявку — проверьте вручную", inline=False)
+                view = ReviewView(author_id=thread.owner_id, source_thread_id=thread.id)
+                await review_channel.send(embed=embed, view=view)
+                await set_thread_tag(WATCH_CHANNEL, thread.id, TAGS_POINTS, "pending")
+                return
+
+        except Exception as e:
+            print(f"[handle_points_thread] Ошибка автопроверки: {e}")
+
+    # Fallback — стандартная отправка в канал
+    embed = discord.Embed(title=f"📋 {thread.name}", description=content or "*Без текста*", color=0x5865F2)
     if author:
         embed.set_author(name=str(author), icon_url=author.display_avatar.url)
     embed.set_footer(text=f"ID автора: {thread.owner_id} | Тред: {thread.id}")
     if attachment_url:
         embed.set_image(url=attachment_url)
-
     view = ReviewView(author_id=thread.owner_id, source_thread_id=thread.id)
     await review_channel.send(embed=embed, view=view)
     await set_thread_tag(WATCH_CHANNEL, thread.id, TAGS_POINTS, "pending")
