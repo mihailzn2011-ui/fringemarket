@@ -2205,7 +2205,10 @@ async def update_roster_leaderboard():
         ]
 
         if bot_messages:
-            await bot_messages[0].delete()
+            try:
+                await bot_messages[0].delete()
+            except discord.errors.NotFound:
+                pass
         await channel.send(embed=embed)
         print("[update_roster_leaderboard] Состав обновлён")
 
@@ -2305,7 +2308,10 @@ async def update_dayoff_leaderboard():
             messages = [msg async for msg in channel.history(limit=10)]
             bot_messages = [msg for msg in messages if msg.author == bot.user and msg.embeds and msg.embeds[0].title == "🏖️ Список отгулов"]
             if bot_messages:
-                await bot_messages[0].delete()
+                try:
+                    await bot_messages[0].delete()
+                except discord.errors.NotFound:
+                    pass
             return
 
         embed = discord.Embed(title="🏖️ Список отгулов", description="Игроки, находящиеся в отгуле", color=0x3498DB)
