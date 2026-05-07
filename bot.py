@@ -30,6 +30,10 @@ REVIEW_CHANNEL = 1499473605535203358
 WARN_ANNOUNCE_CHANNEL = 1429895979863113832
 PROMOTION_CHANNEL = 1493355826138583061
 
+# GIF URLs для уведомлений
+APPROVED_GIF = "https://raw.githubusercontent.com/mihailzn2011-ui/fringemarket/main/assets/gifs/odobreno.gif"
+REJECTED_GIF = "https://raw.githubusercontent.com/mihailzn2011-ui/fringemarket/main/assets/gifs/otkazano.gif"
+
 # Salary application channels
 SALARY_FORUM = 1429899084331876494
 SALARY_REVIEW = 1499473776067350538
@@ -373,7 +377,7 @@ async def auto_check_purchase_application(text: str, author, guild) -> dict | No
     try:
         response = await asyncio.to_thread(
             lambda: groq_client.chat.completions.create(
-                model="mixtral-8x7b-32768",
+                model="llama-3.1-70b-versatile",
                 messages=[{"role": "user", "content": (
                     "Из текста заявки на покупку извлеки:\n"
                     "- nickname: ник игрока\n"
@@ -472,7 +476,7 @@ async def auto_check_points_application(text: str, author, guild) -> dict | None
     try:
         response = await asyncio.to_thread(
             lambda: groq_client.chat.completions.create(
-                model="mixtral-8x7b-32768",
+                model="llama-3.1-70b-versatile",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=200
             )
@@ -812,7 +816,7 @@ async def notify_author_in_thread(thread_id: int | None, author_id: int, approve
         )
         embed.add_field(name="📌 Детали", value=details or "—", inline=False)
         embed.set_footer(text=f"Обработал: {admin_name}" if admin_name else "Обработано администрацией")
-        embed.set_thumbnail(url="https://i.imgur.com/4M34hi2.png")
+        embed.set_image(url=APPROVED_GIF)
     else:
         embed = discord.Embed(
             title="❌ Заявка отклонена",
@@ -821,6 +825,7 @@ async def notify_author_in_thread(thread_id: int | None, author_id: int, approve
         )
         embed.add_field(name="📌 Причина", value=details or "Причина не указана", inline=False)
         embed.set_footer(text=f"Обработал: {admin_name}" if admin_name else "Обработано администрацией")
+        embed.set_image(url=REJECTED_GIF)
 
     try:
         await thread.send(embed=embed)
