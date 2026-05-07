@@ -917,6 +917,67 @@ async def give_warn(interaction: discord.Interaction, игрок: discord.Member
     await interaction.followup.send(f"✅ Варн выдан {игрок.mention}. Варны: **{new_count}/3**", ephemeral=True)
 
 
+@bot.tree.command(name="снятьварн", description="Снять варн игроку")
+@app_commands.describe(игрок="Упомяните игрока")
+async def remove_warn(interaction: discord.Interaction, игрок: discord.Member):
+    user_role_ids = [role.id for role in interaction.user.roles]
+    if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
+        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    guild = interaction.guild
+    member_role_ids = [r.id for r in игрок.roles]
+    warn_count = sum(1 for rid in WARN_ROLES if rid in member_role_ids)
+
+    if warn_count == 0:
+        await interaction.followup.send("❌ У игрока нет варнов.", ephemeral=True)
+        return
+
+    # Удаляем последний варн (самый высокий)
+    role_to_remove = guild.get_role(WARN_ROLES[warn_count - 1])
+    if role_to_remove:
+        await игрок.remove_roles(role_to_remove)
+
+    new_count = warn_count - 1
+
+    # Цветные кружки для варнов
+    if new_count == 0:
+        warn_emoji = "⚫"
+        warn_bar = "⚫⚫⚫"
+        embed_color = 0x57F287
+    elif new_count == 1:
+        warn_emoji = "🟢"
+        warn_bar = "🟢⚫⚫"
+        embed_color = 0x57F287
+    elif new_count == 2:
+        warn_emoji = "🟡"
+        warn_bar = "🟡🟡⚫"
+        embed_color = 0xFEE75C
+    else:
+        warn_emoji = "🔴"
+        warn_bar = "🔴🔴🔴"
+        embed_color = 0xED4245
+
+    announce_ch = bot.get_channel(WARN_ANNOUNCE_CHANNEL)
+    if announce_ch:
+        embed_announce = discord.Embed(
+            title="✅ Снятие варна",
+            description=f"{игрок.mention} получил снятие варна!",
+            color=embed_color
+        )
+        embed_announce.add_field(name="👤 Игрок", value=игрок.mention, inline=True)
+        embed_announce.add_field(name="🛡️ Снял", value=interaction.user.mention, inline=True)
+        embed_announce.add_field(name=f"Варны {warn_bar} {new_count}/3", value=f"", inline=False)
+        embed_announce.set_thumbnail(url=игрок.display_avatar.url)
+        embed_announce.set_footer(text=f"ID: {игрок.id}")
+        await announce_ch.send(embed=embed_announce)
+
+    await update_warn_leaderboard()
+    await interaction.followup.send(f"✅ Варн снят у {игрок.mention}. Варны: **{new_count}/3**", ephemeral=True)
+
+
 @bot.tree.command(name="выдатьустник", description="Выдать устник игроку")
 @app_commands.describe(игрок="Упомяните игрока", причина="Причина выдачи устника", скриншот="Ссылка на скриншот (опционально)")
 async def give_mute(interaction: discord.Interaction, игрок: discord.Member, причина: str, скриншот: str = None):
