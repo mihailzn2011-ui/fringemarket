@@ -7,11 +7,11 @@ from dotenv import load_dotenv
 from db import DBManager
 
 try:
-    import anthropic
-    ANTHROPIC_AVAILABLE = True
+    from groq import Groq
+    GROQ_AVAILABLE = True
 except ImportError:
-    ANTHROPIC_AVAILABLE = False
-    print("⚠️ anthropic не установлен — автопроверка заявок отключена")
+    GROQ_AVAILABLE = False
+    print("⚠️ groq не установлен — автопроверка заявок отключена")
 
 load_dotenv()
 
@@ -22,10 +22,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 db = DBManager()
-claude = anthropic.Anthropic(
-    api_key=os.getenv("ANTHROPIC_API_KEY"),
-    base_url="https://api.claudexia.tech"
-) if ANTHROPIC_AVAILABLE else None
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY")) if GROQ_AVAILABLE else None
 
 # Channel IDs
 WATCH_CHANNEL = 1429899592824258590
@@ -370,14 +367,13 @@ async def detect_application_type(text: str) -> str:
 
 
 async def auto_check_purchase_application(text: str, author, guild) -> dict | None:
-    """Парсит заявку на покупку через Claude и обрабатывает если возможно."""
-    if not claude:
+    """Парсит заявку на покупку через Groq и обрабатывает если возможно."""
+    if not groq_client:
         return None
     try:
         response = await asyncio.to_thread(
-            lambda: claude.messages.create(
-                model="claude-haiku-4-5",
-                max_tokens=100,
+            lambda: groq_client.chat.completions.create(
+                model="mixtral-8x7b-32768",
                 messages=[{"role": "user", "content": (
                     "Из текста заявки на покупку извлеки:\n"
                     "- nickname: ник игрока\n"
@@ -385,13 +381,14 @@ async def auto_check_purchase_application(text: str, author, guild) -> dict | No
                     "Ответь ТОЛЬКО валидным JSON без пояснений:\n"
                     '{"nickname": "...", "item_number": "1"}\n\n'
                     f"Текст:\n{text}"
-                )}]
+                )}],
+                max_tokens=100
             )
         )
         import json
-        parsed = json.loads(response.content[0].text.strip())
+        parsed = json.loads(response.choices[0].message.content.strip())
     except Exception as e:
-        print(f"[auto_check_purchase] Claude ошибка: {e}")
+        print(f"[auto_check_purchase] Groq ошибка: {e}")
         return None
 
     nickname = parsed.get("nickname")
@@ -443,15 +440,15 @@ async def auto_check_purchase_application(text: str, author, guild) -> dict | No
 
 async def auto_check_points_application(text: str, author, guild) -> dict | None:
     """
-    Парсит заявку на баллы через Claude, находит канал игрока,
+    Парсит заявку на баллы через Groq, находит канал игрока,
     считает сообщения за период и сравнивает с заявленным числом.
     Возвращает dict с ключами: match, claimed, actual, points, summary
     """
-    if not claude:
+    if not groq_client:
         return None
     from datetime import datetime, timezone
 
-    # 1. Парсим заявку через Claude
+    # 1. Парсим заявку через Groq
     prompt = f"""Ты парсер заявок на баллы для Discord бота. Из текста заявки извлеки:
 - nickname: ник игрока (строка)
 - count: количество наказаний (целое число)  
@@ -474,16 +471,16 @@ async def auto_check_points_application(text: str, author, guild) -> dict | None
 
     try:
         response = await asyncio.to_thread(
-            lambda: claude.messages.create(
-                model="claude-haiku-4-5",
-                max_tokens=200,
-                messages=[{"role": "user", "content": prompt}]
+            lambda: groq_client.chat.completions.create(
+                model="mixtral-8x7b-32768",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=200
             )
         )
         import json
-        parsed = json.loads(response.content[0].text.strip())
+        parsed = json.loads(response.choices[0].message.content.strip())
     except Exception as e:
-        print(f"[auto_check] Claude ошибка парсинга: {e}")
+        print(f"[auto_check] Groq ошибка парсинга: {e}")
         return None
 
     nickname = parsed.get("nickname")
@@ -582,10 +579,10 @@ async def handle_points_thread(thread: discord.Thread):
     content = starter.content if starter else ""
     attachment_url = starter.attachments[0].url if starter and starter.attachments else None
 
-    # Определяем тип заявки через Claude и пробуем автообработать
+    # Определяем тип заявки через Groq и пробуем автообработать
     if content:
         try:
-            print(f"[auto_check] claude доступен: {claude is not None}, content: {content[:50]!r}")
+            print(f"[auto_check] groq доступен: {groq_client is not None}, content: {content[:50]!r}")
             app_type = await detect_application_type(content)
             print(f"[auto_check] тип заявки: {app_type}")
 
