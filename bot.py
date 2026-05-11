@@ -133,6 +133,14 @@ TAGS_PROMO = {
     "approved": 1429896774008442910,
     "rejected": 1429896817914675241,
 }
+# 5. APPEAL_FORUM (обжалование варнов/устников)
+APPEAL_FORUM = 1503423212179034253
+APPEAL_REVIEW = 1503423212179034253
+TAGS_APPEAL = {
+    "pending":  1503423824962519072,
+    "approved": 1503423655315767487,
+    "rejected": 1503423727096955010,
+}
 
 
 @bot.event
@@ -209,6 +217,8 @@ async def on_thread_create(thread: discord.Thread):
         await handle_dayoff_thread(thread)
     elif thread.parent_id == PROMO_APP_FORUM:
         await handle_promotion_thread(thread)
+    elif thread.parent_id == APPEAL_FORUM:
+        await handle_appeal_thread(thread)
 
 
 # ─── ОБНОВЛЕНИЕ ТАБЛИЦ ПРИ РУЧНОМ ИЗМЕНЕНИИ РОЛЕЙ ────────────────────────────
@@ -766,6 +776,37 @@ async def handle_promotion_thread(thread: discord.Thread):
     view = PromotionAppReviewView(author_id=thread.owner_id, source_thread_id=thread.id)
     await review_channel.send(embed=embed, view=view)
     await set_thread_tag(PROMO_APP_FORUM, thread.id, TAGS_PROMO, "pending")
+
+
+async def handle_appeal_thread(thread: discord.Thread):
+    await asyncio.sleep(1.5)
+    try:
+        starter = await thread.fetch_message(thread.id)
+    except Exception:
+        starter = None
+
+    review_channel = bot.get_channel(APPEAL_REVIEW)
+    if not review_channel:
+        return
+
+    author = thread.owner
+    content = starter.content if starter else ""
+    attachment_url = starter.attachments[0].url if starter and starter.attachments else None
+
+    embed = discord.Embed(
+        title=f"⚖️ Обжалование: {thread.name}",
+        description=content or "*Без текста*",
+        color=0xE67E22
+    )
+    if author:
+        embed.set_author(name=str(author), icon_url=author.display_avatar.url)
+    embed.set_footer(text=f"ID автора: {thread.owner_id} | Тред: {thread.id}")
+    if attachment_url:
+        embed.set_image(url=attachment_url)
+
+    view = AppealReviewView(author_id=thread.owner_id, source_thread_id=thread.id)
+    await review_channel.send(embed=embed, view=view)
+    await set_thread_tag(APPEAL_FORUM, thread.id, TAGS_APPEAL, "pending")
 
 
 async def forward_to_review(message: discord.Message, thread_id):
@@ -2178,6 +2219,153 @@ class PromotionAppRejectModal(discord.ui.Modal, title="Причина откло
         )
         await disable_buttons(self.review_message)
         await set_thread_tag(PROMO_APP_FORUM, self.source_thread_id, TAGS_PROMO, "rejected")
+        await interaction.followup.send("✅ Заявка отклонена.", ephemeral=True)
+
+
+# ─── APPEAL VIEWS ─────────────────────────────────────────────────────────────
+
+class AppealReviewView(discord.ui.View):
+    def __init__(self, author_id: int, source_thread_id: int):
+        super().__init__(timeout=None)
+        self.author_id = author_id
+        self.source_thread_id = source_thread_id
+
+    @discord.ui.button(label="✅ Одобрить", style=discord.ButtonStyle.success)
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Показываем выбор: снять варн или устник
+        view = AppealApproveTypeView(
+            author_id=self.author_id,
+            review_message=interaction.message,
+            source_thread_id=self.source_thread_id
+        )
+        await interaction.response.send_message("Что снять?", view=view, ephemeral=True)
+
+    @discord.ui.button(label="❌ Отклонить", style=discord.ButtonStyle.danger)
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = AppealRejectModal(
+            author_id=self.author_id,
+            review_message=interaction.message,
+            source_thread_id=self.source_thread_id
+        )
+        await interaction.response.send_modal(modal)
+
+
+class AppealApproveTypeView(discord.ui.View):
+    def __init__(self, author_id: int, review_message: discord.Message, source_thread_id: int):
+        super().__init__(timeout=60)
+        self.author_id = author_id
+        self.review_message = review_message
+        self.source_thread_id = source_thread_id
+
+    @discord.ui.button(label="⚠️ Снять варн", style=discord.ButtonStyle.primary)
+    async def remove_warn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        member = guild.get_member(self.author_id)
+        if not member:
+            await interaction.followup.send("❌ Игрок не найден.", ephemeral=True)
+            return
+
+        member_role_ids = [r.id for r in member.roles]
+        warn_count = sum(1 for rid in WARN_ROLES if rid in member_role_ids)
+        if warn_count == 0:
+            await interaction.followup.send("❌ У игрока нет варнов.", ephemeral=True)
+            return
+
+        role_to_remove = guild.get_role(WARN_ROLES[warn_count - 1])
+        if role_to_remove:
+            await member.remove_roles(role_to_remove)
+        new_count = warn_count - 1
+
+        warn_ch = bot.get_channel(WARN_ANNOUNCE_CHANNEL)
+        if warn_ch:
+            embed = discord.Embed(
+                title="⚖️ Обжалование варна одобрено",
+                description=f"{member.mention} — варн снят по обжалованию",
+                color=0x57F287
+            )
+            embed.add_field(name="Варны", value=f"**{new_count}/3**", inline=True)
+            embed.add_field(name="Снял", value=interaction.user.mention, inline=True)
+            embed.set_thumbnail(url=member.display_avatar.url)
+            await warn_ch.send(embed=embed)
+
+        await notify_in_thread(
+            APPEAL_FORUM, self.source_thread_id, self.author_id,
+            approved=True,
+            title="✅ Обжалование одобрено",
+            details=f"Варн снят. Текущие варны: **{new_count}/3**",
+            admin_name=str(interaction.user)
+        )
+        await disable_buttons(self.review_message)
+        await set_thread_tag(APPEAL_FORUM, self.source_thread_id, TAGS_APPEAL, "approved")
+        await update_warn_leaderboard()
+        await interaction.followup.send(f"✅ Варн снят. Варны: **{new_count}/3**", ephemeral=True)
+
+    @discord.ui.button(label="🔇 Снять устник", style=discord.ButtonStyle.secondary)
+    async def remove_mute(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        member = guild.get_member(self.author_id)
+        if not member:
+            await interaction.followup.send("❌ Игрок не найден.", ephemeral=True)
+            return
+
+        member_role_ids = [r.id for r in member.roles]
+        mute_count = sum(1 for rid in MUTE_ROLES if rid in member_role_ids)
+        if mute_count == 0:
+            await interaction.followup.send("❌ У игрока нет устников.", ephemeral=True)
+            return
+
+        role_to_remove = guild.get_role(MUTE_ROLES[mute_count - 1])
+        if role_to_remove:
+            await member.remove_roles(role_to_remove)
+        new_count = mute_count - 1
+
+        mute_ch = bot.get_channel(WARN_ANNOUNCE_CHANNEL)
+        if mute_ch:
+            embed = discord.Embed(
+                title="⚖️ Обжалование устника одобрено",
+                description=f"{member.mention} — устник снят по обжалованию",
+                color=0x57F287
+            )
+            embed.add_field(name="Устники", value=f"**{new_count}/2**", inline=True)
+            embed.add_field(name="Снял", value=interaction.user.mention, inline=True)
+            embed.set_thumbnail(url=member.display_avatar.url)
+            await mute_ch.send(embed=embed)
+
+        await notify_in_thread(
+            APPEAL_FORUM, self.source_thread_id, self.author_id,
+            approved=True,
+            title="✅ Обжалование одобрено",
+            details=f"Устник снят. Текущие устники: **{new_count}/2**",
+            admin_name=str(interaction.user)
+        )
+        await disable_buttons(self.review_message)
+        await set_thread_tag(APPEAL_FORUM, self.source_thread_id, TAGS_APPEAL, "approved")
+        await update_mute_leaderboard()
+        await interaction.followup.send(f"✅ Устник снят. Устники: **{new_count}/2**", ephemeral=True)
+
+
+class AppealRejectModal(discord.ui.Modal, title="Причина отклонения"):
+    reason = discord.ui.TextInput(label="Причина", style=discord.TextStyle.paragraph)
+
+    def __init__(self, author_id: int, review_message: discord.Message, source_thread_id: int):
+        super().__init__()
+        self.author_id = author_id
+        self.review_message = review_message
+        self.source_thread_id = source_thread_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await notify_in_thread(
+            APPEAL_FORUM, self.source_thread_id, self.author_id,
+            approved=False,
+            title="❌ Обжалование отклонено",
+            details=str(self.reason),
+            admin_name=str(interaction.user)
+        )
+        await disable_buttons(self.review_message)
+        await set_thread_tag(APPEAL_FORUM, self.source_thread_id, TAGS_APPEAL, "rejected")
         await interaction.followup.send("✅ Заявка отклонена.", ephemeral=True)
 
 
