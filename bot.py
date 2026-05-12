@@ -194,6 +194,8 @@ async def on_ready():
     except Exception as e:
         print(f"❌ Ошибка восстановления таймеров: {e}")
 
+    asyncio.create_task(daily_scheduler())
+
 
 @bot.event
 async def on_message(message):
@@ -2993,9 +2995,6 @@ async def daily_scheduler():
             check_type = SCHEDULE.get(yesterday)
             if check_type is not None and guild:
                 await check_reports(with_norm=check_type, guild=guild)
-
-
-bot.loop.create_task(daily_scheduler())
 
 
 @bot.tree.command(name="подсчитать_норму", description="Вручную запустить проверку отчётов")
