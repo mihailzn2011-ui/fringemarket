@@ -1381,13 +1381,14 @@ async def count_punishments(interaction: discord.Interaction, ник: str, с_д
 
     # Ищем канал игрока по нику во всех штатных категориях
     target_channel = None
-    nick_lower = ник.lower()
+    nick_lower = ник.lower().split("|")[0].strip()
     for cat_id in STAFF_CATEGORIES:
         category = interaction.guild.get_channel(cat_id)
         if not category:
             continue
         for ch in category.channels:
-            if nick_lower in ch.name.lower():
+            ch_name = ch.name.lower().split("|")[0].strip()
+            if nick_lower in ch_name or ch_name in nick_lower:
                 target_channel = ch
                 break
         if target_channel:
