@@ -2799,4 +2799,220 @@ async def restore_dayoff_timers():
     await update_dayoff_leaderboard()
 
 
+# ─── РАСПИСАНИЕ ПРОВЕРОК ──────────────────────────────────────────────────────
+
+REPORT_CHECK_CHANNEL = 1429895979657859163
+
+# Роли грифов
+GRIEF_1_ROLE = 1471547081196835018
+GRIEF_2_ROLE = 1434471945893576714
+# Анка — все кто не гриф 1 и не гриф 2 считаются анкой
+
+# Норма наказаний для грифа 1 (индекс совпадает с STAFF_ROLES)
+NORM_GRIEF1 = [15, 20, 15, 25, 30, 35, 40]
+# Гриф 2 и анка — норма в 2 раза меньше
+NORM_GRIEF2 = [n // 2 for n in NORM_GRIEF1]
+
+# Расписание: 0=Пн, 1=Вт, 2=Ср, 3=Чт, 4=Пт, 5=Сб, 6=Вс
+# True = с нормой, False = без нормы, None = выходной
+SCHEDULE = {0: False, 1: True, 2: False, 3: True, 4: False, 5: True, 6: None}
+
+
+def get_today_check_type():
+    from datetime import datetime
+    import pytz
+    msk = pytz.timezone("Europe/Moscow")
+    weekday = datetime.now(msk).weekday()
+    return SCHEDULE.get(weekday)
+
+
+async def send_daily_reminder():
+    """Отправляет напоминание в 10:00 МСК."""
+    channel = bot.get_channel(REPORT_CHECK_CHANNEL)
+    if not channel:
+        return
+    check_type = get_today_check_type()
+    if check_type is None:
+        return  # Воскресенье — отдых
+    if check_type is False:
+        await channel.send("@everyone Сегодня проверка отчётов без нормы, не будет отчёта до 00:00 ПО МСК - варн")
+    else:
+        await channel.send("@everyone Сегодня проверка отчётов с нормой, не будет отчёта до 00:00 ПО МСК - варн")
+
+
+async def get_member_norm(member: discord.Member) -> int | None:
+    """Возвращает норму наказаний для участника или None если нет штатной роли."""
+    member_role_ids = [r.id for r in member.roles]
+    staff_idx = -1
+    for i, rid in enumerate(STAFF_ROLES):
+        if rid in member_role_ids:
+            staff_idx = i
+    if staff_idx == -1:
+        return None
+    if GRIEF_1_ROLE in member_role_ids:
+        return NORM_GRIEF1[staff_idx]
+    else:
+        return NORM_GRIEF2[staff_idx]
+
+
+async def check_reports(with_norm: bool, guild: discord.Guild):
+    """Проверяет отчёты всех штатных игроков и выдаёт варны/устники."""
+    from datetime import datetime, timezone
+    import pytz
+    msk = pytz.timezone("Europe/Moscow")
+    now = datetime.now(msk)
+    # Начало сегодняшнего дня в МСК → UTC
+    day_start = msk.localize(datetime(now.year, now.month, now.day, 0, 0, 0)).astimezone(timezone.utc)
+
+    channel = bot.get_channel(REPORT_CHECK_CHANNEL)
+    violators = []
+
+    for member in guild.members:
+        if member.bot:
+            continue
+        member_role_ids = [r.id for r in member.roles]
+        # Только штатные
+        if not any(rid in member_role_ids for rid in STAFF_ROLES):
+            continue
+        # Игроки в отгуле — пропускаем
+        if DAYOFF_ROLE in member_role_ids:
+            continue
+
+        # Ищем канал игрока
+        nick_lower = member.display_name.split("|")[0].strip().lower()
+        target_channel = None
+        for cat_id in STAFF_CATEGORIES:
+            category = guild.get_channel(cat_id)
+            if not category:
+                continue
+            for ch in category.channels:
+                if nick_lower in ch.name.lower():
+                    target_channel = ch
+                    break
+            if target_channel:
+                break
+
+        if not target_channel:
+            continue
+
+        # Считаем сообщения с вложениями за сегодня
+        count = 0
+        try:
+            async for msg in target_channel.history(limit=2000, after=day_start):
+                if msg.author.id == member.id and msg.attachments:
+                    count += 1
+        except Exception:
+            continue
+
+        if not with_norm:
+            # Без нормы — просто проверяем что хоть что-то есть
+            if count == 0:
+                violators.append((member, count, None))
+        else:
+            # С нормой — проверяем норму
+            norm = await get_member_norm(member)
+            if norm is None:
+                continue
+            if count < norm:
+                violators.append((member, count, norm))
+
+    # Выдаём варны/устники
+    warn_results = []
+    for member, count, norm in violators:
+        member_role_ids = [r.id for r in member.roles]
+        warn_count = sum(1 for rid in WARN_ROLES if rid in member_role_ids)
+        mute_count = sum(1 for rid in MUTE_ROLES if rid in member_role_ids)
+
+        reason = "Нет отчёта" if not with_norm else f"Не выполнена норма ({count}/{norm})"
+
+        if warn_count >= 2:
+            # Выдаём устник
+            if mute_count < len(MUTE_ROLES):
+                role_to_add = guild.get_role(MUTE_ROLES[mute_count])
+                if role_to_add:
+                    await member.add_roles(role_to_add)
+                warn_results.append(f"{member.mention} — 🔇 устник ({reason})")
+                await update_mute_leaderboard()
+        elif warn_count < len(WARN_ROLES):
+            role_to_add = guild.get_role(WARN_ROLES[warn_count])
+            if role_to_add:
+                await member.add_roles(role_to_add)
+            warn_results.append(f"{member.mention} — ⚠️ варн {warn_count + 1}/3 ({reason})")
+            await update_warn_leaderboard()
+
+    if channel and warn_results:
+        check_label = "без нормы" if not with_norm else "с нормой"
+        embed = discord.Embed(
+            title=f"📋 Результаты проверки отчётов ({check_label})",
+            description="\n".join(warn_results),
+            color=0xED4245
+        )
+        embed.set_footer(text=f"Проверка завершена • {now.strftime('%d.%m.%Y')}")
+        await channel.send(embed=embed)
+    elif channel:
+        await channel.send("✅ Все сдали отчёты, нарушений нет!")
+
+    print(f"[check_reports] Проверка завершена, нарушителей: {len(violators)}")
+
+
+async def daily_scheduler():
+    """Фоновая задача — запускает напоминание в 10:00 и проверку в 00:00 МСК."""
+    import pytz
+    from datetime import datetime, timedelta
+    msk = pytz.timezone("Europe/Moscow")
+
+    await bot.wait_until_ready()
+    print("[scheduler] Планировщик запущен")
+
+    while not bot.is_closed():
+        now = datetime.now(msk)
+        # Следующие 10:00 МСК
+        next_10 = msk.localize(datetime(now.year, now.month, now.day, 10, 0, 0))
+        if now >= next_10:
+            next_10 += timedelta(days=1)
+        # Следующие 00:00 МСК
+        next_midnight = msk.localize(datetime(now.year, now.month, now.day + 1, 0, 0, 0))
+
+        # Ждём ближайшее событие
+        next_event = min(next_10, next_midnight)
+        wait_seconds = (next_event - now).total_seconds()
+        await asyncio.sleep(wait_seconds)
+
+        now = datetime.now(msk)
+        guild = None
+        for g in bot.guilds:
+            guild = g
+            break
+
+        if now.hour == 10 and now.minute < 5:
+            await send_daily_reminder()
+        elif now.hour == 0 and now.minute < 5:
+            check_type = get_today_check_type()
+            # Проверяем вчерашний день (уже наступила полночь)
+            yesterday = (now.weekday() - 1) % 7
+            check_type = SCHEDULE.get(yesterday)
+            if check_type is not None and guild:
+                await check_reports(with_norm=check_type, guild=guild)
+
+
+bot.loop.create_task(daily_scheduler())
+
+
+@bot.tree.command(name="подсчитать_норму", description="Вручную запустить проверку отчётов")
+@app_commands.describe(тип="Тип проверки: без_нормы или с_нормой")
+@app_commands.choices(тип=[
+    app_commands.Choice(name="без нормы", value="no_norm"),
+    app_commands.Choice(name="с нормой", value="with_norm"),
+])
+async def manual_check_norm(interaction: discord.Interaction, тип: app_commands.Choice[str]):
+    user_role_ids = [role.id for role in interaction.user.roles]
+    if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
+        await interaction.response.send_message("❌ У вас нет прав.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=False)
+    with_norm = тип.value == "with_norm"
+    await check_reports(with_norm=with_norm, guild=interaction.guild)
+    await interaction.followup.send("✅ Проверка завершена.", ephemeral=True)
+
+
 bot.run(os.getenv("DISCORD_TOKEN"))
