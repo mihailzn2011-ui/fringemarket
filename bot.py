@@ -857,7 +857,7 @@ async def notify_author_in_thread(thread_id: int | None, author_id: int, approve
         )
         embed.add_field(name="📌 Детали", value=details or "—", inline=False)
         embed.set_footer(text=f"Обработал: {admin_name}" if admin_name else "Обработано администрацией")
-        embed.set_image(url=APPROVED_GIF)
+        embed.set_thumbnail(url=APPROVED_GIF)
     else:
         embed = discord.Embed(
             title="❌ Заявка отклонена",
@@ -866,7 +866,7 @@ async def notify_author_in_thread(thread_id: int | None, author_id: int, approve
         )
         embed.add_field(name="📌 Причина", value=details or "Причина не указана", inline=False)
         embed.set_footer(text=f"Обработал: {admin_name}" if admin_name else "Обработано администрацией")
-        embed.set_image(url=REJECTED_GIF)
+        embed.set_thumbnail(url=REJECTED_GIF)
 
     try:
         await thread.send(embed=embed)
@@ -2394,10 +2394,12 @@ async def notify_in_thread(forum_id: int, thread_id: int, author_id: int, approv
         embed = discord.Embed(title=title, description=f"<@{author_id}>, твоя заявка была **одобрена**. 🎉", color=0x57F287)
         embed.add_field(name="📌 Детали", value=details or "—", inline=False)
         embed.set_footer(text=f"Обработал: {admin_name}")
+        embed.set_thumbnail(url=APPROVED_GIF)
     else:
         embed = discord.Embed(title=title, description=f"<@{author_id}>, твоя заявка была **отклонена**.", color=0xED4245)
         embed.add_field(name="📌 Причина", value=details or "Причина не указана", inline=False)
         embed.set_footer(text=f"Обработал: {admin_name}")
+        embed.set_thumbnail(url=REJECTED_GIF)
 
     try:
         await thread.send(embed=embed)
