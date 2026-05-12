@@ -1362,6 +1362,63 @@ async def hire_helper(
         )
 
 
+@bot.tree.command(name="посчитать", description="Посчитать наказания игрока по скриншотам в канале")
+@app_commands.describe(ник="Ник игрока в канале", с_даты="С какого числа считать (формат: ДД.ММ.ГГГГ)")
+async def count_punishments(interaction: discord.Interaction, ник: str, с_даты: str):
+    user_role_ids = [role.id for role in interaction.user.roles]
+    if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
+        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=False)
+
+    from datetime import datetime, timezone
+    try:
+        date_from = datetime.strptime(с_даты, "%d.%m.%Y").replace(tzinfo=timezone.utc)
+    except ValueError:
+        await interaction.followup.send("❌ Неверный формат даты. Используй: ДД.ММ.ГГГГ (например 01.05.2026)", ephemeral=True)
+        return
+
+    # Ищем канал игрока по нику во всех штатных категориях
+    target_channel = None
+    nick_lower = ник.lower()
+    for cat_id in STAFF_CATEGORIES:
+        category = interaction.guild.get_channel(cat_id)
+        if not category:
+            continue
+        for ch in category.channels:
+            if nick_lower in ch.name.lower():
+                target_channel = ch
+                break
+        if target_channel:
+            break
+
+    if not target_channel:
+        await interaction.followup.send(f"❌ Канал игрока **{ник}** не найден.", ephemeral=True)
+        return
+
+    # Считаем сообщения со скриншотами (вложениями)
+    count = 0
+    try:
+        async for msg in target_channel.history(limit=5000, after=date_from):
+            if msg.attachments:
+                count += 1
+    except Exception as e:
+        await interaction.followup.send(f"❌ Ошибка при чтении канала: {e}", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="📊 Подсчёт наказаний",
+        color=0x5865F2
+    )
+    embed.add_field(name="👤 Игрок", value=f"**{ник}**", inline=True)
+    embed.add_field(name="📅 С даты", value=f"**{с_даты}**", inline=True)
+    embed.add_field(name="⚠️ Наказаний", value=f"**{count}**", inline=True)
+    embed.add_field(name="📁 Канал", value=target_channel.mention, inline=False)
+    embed.set_footer(text=f"Проверил: {interaction.user}")
+    await interaction.followup.send(embed=embed)
+
+
 @bot.tree.command(name="обновитьлидерборд", description="Обновить таблицу баллов вручную")
 async def update_leaderboard_command(interaction: discord.Interaction):
     user_role_ids = [role.id for role in interaction.user.roles]
