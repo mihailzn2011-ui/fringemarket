@@ -1363,8 +1363,8 @@ async def hire_helper(
 
 
 @bot.tree.command(name="посчитать", description="Посчитать наказания игрока по скриншотам в канале")
-@app_commands.describe(ник="Ник игрока в канале", с_даты="С какого числа считать (формат: ДД.ММ.ГГГГ)")
-async def count_punishments(interaction: discord.Interaction, ник: str, с_даты: str):
+@app_commands.describe(игрок="Упомяните игрока", с_даты="С какого числа считать (формат: ДД.ММ.ГГГГ)")
+async def count_punishments(interaction: discord.Interaction, игрок: discord.Member, с_даты: str):
     user_role_ids = [role.id for role in interaction.user.roles]
     if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
         await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
@@ -1379,23 +1379,22 @@ async def count_punishments(interaction: discord.Interaction, ник: str, с_д
         await interaction.followup.send("❌ Неверный формат даты. Используй: ДД.ММ.ГГГГ (например 01.05.2026)", ephemeral=True)
         return
 
-    # Ищем канал игрока по нику во всех штатных категориях
+    # Ищем канал по display_name игрока (часть до |)
     target_channel = None
-    nick_lower = ник.lower().split("|")[0].strip()
+    nick_lower = игрок.display_name.split("|")[0].strip().lower()
     for cat_id in STAFF_CATEGORIES:
         category = interaction.guild.get_channel(cat_id)
         if not category:
             continue
         for ch in category.channels:
-            ch_name = ch.name.lower().split("|")[0].strip()
-            if nick_lower in ch_name or ch_name in nick_lower:
+            if nick_lower in ch.name.lower():
                 target_channel = ch
                 break
         if target_channel:
             break
 
     if not target_channel:
-        await interaction.followup.send(f"❌ Канал игрока **{ник}** не найден.", ephemeral=True)
+        await interaction.followup.send(f"❌ Канал игрока **{игрок.display_name}** не найден.", ephemeral=True)
         return
 
     # Считаем сообщения со скриншотами (вложениями)
@@ -1408,14 +1407,11 @@ async def count_punishments(interaction: discord.Interaction, ник: str, с_д
         await interaction.followup.send(f"❌ Ошибка при чтении канала: {e}", ephemeral=True)
         return
 
-    embed = discord.Embed(
-        title="📊 Подсчёт наказаний",
-        color=0x5865F2
-    )
-    embed.add_field(name="👤 Игрок", value=f"**{ник}**", inline=True)
-    embed.add_field(name="📅 С даты", value=f"**{с_даты}**", inline=True)
+    embed = discord.Embed(title="📊 Подсчёт наказаний", color=0x5865F2)
+    embed.add_field(name="👤 Игрок", value=игрок.mention, inline=True)
+    embed.add_field(name="� С даты", value=f"**{с_даты}**", inline=True)
     embed.add_field(name="⚠️ Наказаний", value=f"**{count}**", inline=True)
-    embed.add_field(name="📁 Канал", value=target_channel.mention, inline=False)
+    embed.add_field(name="� Канал", value=target_channel.mention, inline=False)
     embed.set_footer(text=f"Проверил: {interaction.user}")
     await interaction.followup.send(embed=embed)
 
