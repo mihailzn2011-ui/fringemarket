@@ -1404,7 +1404,7 @@ async def count_punishments(interaction: discord.Interaction, игрок: discor
     try:
         async for msg in target_channel.history(limit=5000, after=date_from):
             if msg.attachments:
-                count += 1
+                count += len(msg.attachments)
     except Exception as e:
         await interaction.followup.send(f"❌ Ошибка при чтении канала: {e}", ephemeral=True)
         return
@@ -2902,7 +2902,7 @@ async def check_reports(with_norm: bool, guild: discord.Guild):
         try:
             async for msg in target_channel.history(limit=2000, after=day_start):
                 if msg.author.id == member.id and msg.attachments:
-                    count += 1
+                    count += len(msg.attachments)
         except Exception:
             continue
 
