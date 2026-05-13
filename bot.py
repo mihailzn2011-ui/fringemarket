@@ -2804,6 +2804,7 @@ async def restore_dayoff_timers():
 # ─── РАСПИСАНИЕ ПРОВЕРОК ──────────────────────────────────────────────────────
 
 REPORT_CHECK_CHANNEL = 1429895979657859163
+auto_check_disabled_date = None  # дата когда отключена автопроверка
 
 # Роли грифов
 GRIEF_1_ROLE = 1471547081196835018
@@ -2927,6 +2928,8 @@ async def check_reports(with_norm: bool, guild: discord.Guild):
 
         reason = "Нет отчёта" if not with_norm else f"Не выполнена норма ({count}/{norm})"
 
+        warn_ch = bot.get_channel(WARN_ANNOUNCE_CHANNEL)
+
         if warn_count >= 2:
             # Выдаём устник
             if mute_count < len(MUTE_ROLES):
@@ -2934,12 +2937,31 @@ async def check_reports(with_norm: bool, guild: discord.Guild):
                 if role_to_add:
                     await member.add_roles(role_to_add)
                 warn_results.append(f"{member.mention} — 🔇 устник ({reason})")
+                if warn_ch:
+                    embed_w = discord.Embed(title="🔇 Выдача устника", description=f"{member.mention} получил устник!", color=0xF1C40F)
+                    embed_w.add_field(name="📋 Причина", value=reason, inline=False)
+                    embed_w.set_thumbnail(url=member.display_avatar.url)
+                    await warn_ch.send(embed=embed_w)
                 await update_mute_leaderboard()
         elif warn_count < len(WARN_ROLES):
             role_to_add = guild.get_role(WARN_ROLES[warn_count])
             if role_to_add:
                 await member.add_roles(role_to_add)
-            warn_results.append(f"{member.mention} — ⚠️ варн {warn_count + 1}/3 ({reason})")
+            new_warn = warn_count + 1
+            warn_results.append(f"{member.mention} — ⚠️ варн {new_warn}/3 ({reason})")
+            if warn_ch:
+                if new_warn == 1:
+                    warn_emoji, embed_color = "🟢", 0x57F287
+                elif new_warn == 2:
+                    warn_emoji, embed_color = "🟡", 0xFEE75C
+                else:
+                    warn_emoji, embed_color = "🔴", 0xED4245
+                warn_bar = warn_emoji * new_warn + "⚫" * (3 - new_warn)
+                embed_w = discord.Embed(title="⚠️ Выдача варна", description=f"{member.mention} получил варн!", color=embed_color)
+                embed_w.add_field(name=f"Варны {warn_bar} {new_warn}/3", value="", inline=False)
+                embed_w.add_field(name="📋 Причина", value=reason, inline=False)
+                embed_w.set_thumbnail(url=member.display_avatar.url)
+                await warn_ch.send(embed=embed_w)
             await update_warn_leaderboard()
 
     if channel and warn_results:
@@ -2994,7 +3016,13 @@ async def daily_scheduler():
             yesterday = (now.weekday() - 1) % 7
             check_type = SCHEDULE.get(yesterday)
             if check_type is not None and guild:
-                await check_reports(with_norm=check_type, guild=guild)
+                # Проверяем не отключена ли автопроверка на сегодня
+                global auto_check_disabled_date
+                today_str = now.strftime("%d.%m.%Y")
+                if auto_check_disabled_date == today_str:
+                    print("[scheduler] Автопроверка отключена на сегодня")
+                else:
+                    await check_reports(with_norm=check_type, guild=guild)
 
 
 @bot.tree.command(name="подсчитать_норму", description="Вручную запустить проверку отчётов")
@@ -3012,6 +3040,63 @@ async def manual_check_norm(interaction: discord.Interaction, тип: app_comman
     with_norm = тип.value == "with_norm"
     await check_reports(with_norm=with_norm, guild=interaction.guild)
     await interaction.followup.send("✅ Проверка завершена.", ephemeral=True)
+
+
+@bot.tree.command(name="отключитьавтопроверку", description="Отключить автопроверку отчётов на сегодня")
+async def disable_auto_check(interaction: discord.Interaction):
+    user_role_ids = [role.id for role in interaction.user.roles]
+    if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
+        await interaction.response.send_message("❌ У вас нет прав.", ephemeral=True)
+        return
+    global auto_check_disabled_date
+    import pytz
+    from datetime import datetime
+    msk = pytz.timezone("Europe/Moscow")
+    today_str = datetime.now(msk).strftime("%d.%m.%Y")
+    auto_check_disabled_date = today_str
+    await interaction.response.send_message(f"✅ Автопроверка отключена на **{today_str}**.", ephemeral=True)
+
+
+@bot.tree.command(name="проверка_с_нормой", description="Запустить проверку с нормой (удаляет старое сообщение)")
+async def check_with_norm_cmd(interaction: discord.Interaction):
+    user_role_ids = [role.id for role in interaction.user.roles]
+    if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
+        await interaction.response.send_message("❌ У вас нет прав.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    # Удаляем старое сообщение бота в канале проверок
+    report_ch = bot.get_channel(REPORT_CHECK_CHANNEL)
+    if report_ch:
+        async for msg in report_ch.history(limit=20):
+            if msg.author == bot.user and msg.embeds and "Результаты проверки" in (msg.embeds[0].title or ""):
+                try:
+                    await msg.delete()
+                except discord.errors.NotFound:
+                    pass
+                break
+    await check_reports(with_norm=True, guild=interaction.guild)
+    await interaction.followup.send("✅ Проверка с нормой завершена.", ephemeral=True)
+
+
+@bot.tree.command(name="проверка_без_нормы", description="Запустить проверку без нормы (удаляет старое сообщение)")
+async def check_without_norm_cmd(interaction: discord.Interaction):
+    user_role_ids = [role.id for role in interaction.user.roles]
+    if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
+        await interaction.response.send_message("❌ У вас нет прав.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    # Удаляем старое сообщение бота в канале проверок
+    report_ch = bot.get_channel(REPORT_CHECK_CHANNEL)
+    if report_ch:
+        async for msg in report_ch.history(limit=20):
+            if msg.author == bot.user and msg.embeds and "Результаты проверки" in (msg.embeds[0].title or ""):
+                try:
+                    await msg.delete()
+                except discord.errors.NotFound:
+                    pass
+                break
+    await check_reports(with_norm=False, guild=interaction.guild)
+    await interaction.followup.send("✅ Проверка без нормы завершена.", ephemeral=True)
 
 
 bot.run(os.getenv("DISCORD_TOKEN"))
