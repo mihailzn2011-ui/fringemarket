@@ -1226,6 +1226,28 @@ async def give_promotion(interaction: discord.Interaction, игрок: discord.M
     if new_role:
         await игрок.add_roles(new_role)
 
+    # Если повышают до Модератора (индекс 3) — выдаём доп. роль
+    MODER_ROLE_ID = 1500525783456809101
+    if current_idx + 1 == 3:
+        moder_extra = guild.get_role(MODER_ROLE_ID)
+        if moder_extra:
+            await игрок.add_roles(moder_extra)
+
+    # Очищаем канал отчётов игрока
+    nick_lower = игрок.display_name.split("|")[0].strip().lower()
+    for cat_id in STAFF_CATEGORIES:
+        category = guild.get_channel(cat_id)
+        if not category:
+            continue
+        for ch in category.channels:
+            if nick_lower in ch.name.lower():
+                try:
+                    await ch.purge(limit=None)
+                    print(f"[give_promotion] Канал {ch.name} очищен")
+                except Exception as e:
+                    print(f"[give_promotion] Ошибка очистки канала: {e}")
+                break
+
     promo_ch = bot.get_channel(PROMOTION_CHANNEL)
     if promo_ch:
         embed = discord.Embed(title="⬆️ Повышение", color=0x9B59B6)
@@ -1237,6 +1259,173 @@ async def give_promotion(interaction: discord.Interaction, игрок: discord.M
         )
 
     await interaction.followup.send(f"✅ {игрок.mention} повышен до **{new_role.mention if new_role else STAFF_NAMES[current_idx + 1]}**!", ephemeral=True)
+
+
+@bot.tree.command(name="понизить", description="Понизить игрока")
+@app_commands.describe(игрок="Упомяните игрока")
+async def demote(interaction: discord.Interaction, игрок: discord.Member):
+    user_role_ids = [role.id for role in interaction.user.roles]
+    if not any(role_id in ALLOWED_COMMAND_ROLES for role_id in user_role_ids):
+        await interaction.response.send_message("❌ У вас нет прав для использования этой команды.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    guild = interaction.guild
+    member_role_ids = [r.id for r in игрок.roles]
+
+    current_idx = -1
+    for i, rid in enumerate(STAFF_ROLES):
+        if rid in member_role_ids:
+            current_idx = i
+
+    if current_idx == -1:
+        await interaction.followup.send("❌ У игрока нет штабной роли.", ephemeral=True)
+        return
+    if current_idx == 0:
+        await interaction.followup.send("❌ У игрока минимальная роль.", ephemeral=True)
+        return
+
+    old_role = guild.get_role(STAFF_ROLES[current_idx])
+    new_role = guild.get_role(STAFF_ROLES[current_idx - 1])
+
+    if old_role:
+        await игрок.remove_roles(old_role)
+    if new_role:
+        await игрок.add_roles(new_role)
+
+    # Если понижают с Модератора (индекс 3) — снимаем доп. роль
+    MODER_ROLE_ID = 1500525783456809101
+    if current_idx == 3:
+        moder_extra = guild.get_role(MODER_ROLE_ID)
+        if moder_extra and moder_extra in игрок.roles:
+            await игрок.remove_roles(moder_extra)
+
+    # Очищаем канал отчётов игрока
+    nick_lower = игрок.display_name.split("|")[0].strip().lower()
+    for cat_id in STAFF_CATEGORIES:
+        category = guild.get_channel(cat_id)
+        if not category:
+            continue
+        for ch in category.channels:
+            if nick_lower in ch.name.lower():
+                try:
+                    await ch.purge(limit=None)
+                    print(f"[demote] Канал {ch.name} очищен")
+                except Exception as e:
+                    print(f"[demote] Ошибка очистки канала: {e}")
+                break
+
+    promo_ch = bot.get_channel(PROMOTION_CHANNEL)
+    if promo_ch:
+        embed = discord.Embed(title="⬇️ Понижение", color=0xE74C3C)
+        embed.add_field(name="Игрок", value=игрок.mention, inline=True)
+        embed.add_field(name="Новая роль", value=new_role.mention if new_role else STAFF_NAMES[current_idx - 1], inline=True)
+        embed.set_footer(text=f"Понизил: {interaction.user.name}")
+        await promo_ch.send(
+            content=f"{игрок.mention} был понижен до {new_role.mention if new_role else STAFF_NAMES[current_idx - 1]}",
+            embed=embed
+        )
+
+    await update_roster_leaderboard()
+    await interaction.followup.send(f"✅ {игрок.mention} понижен до **{new_role.mention if new_role else STAFF_NAMES[current_idx - 1]}**!", ephemeral=True)
+
+
+# ─── АТТЕСТАЦИЯ ───────────────────────────────────────────────────────────────
+
+ATTEST_CHANNEL = 1504472739250176070
+ATTEST_PASS_CHANNEL = 1504483633657020416
+ATTEST_ROLE_REMOVE = 1500525783456809101
+ATTEST_ROLE_ADD = 1476242135748448276
+ATTEST_PING_ROLE = 1198613123561685104
+
+# Счётчик попыток аттестации: {user_id: count}
+attest_attempts: dict[int, int] = {}
+
+
+@bot.tree.command(name="аттестация", description="Провести аттестацию игрока")
+@app_commands.describe(
+    игрок="Упомяните игрока",
+    вердикт="Одобрено или Отказано",
+    вредоносных="Сколько нашел вредоносных ПО (1-10)",
+)
+@app_commands.choices(вердикт=[
+    app_commands.Choice(name="Одобрено", value="approved"),
+    app_commands.Choice(name="Отказано", value="rejected"),
+])
+async def attestation(
+    interaction: discord.Interaction,
+    игрок: discord.Member,
+    вердикт: app_commands.Choice[str],
+    вредоносных: app_commands.Range[int, 1, 10],
+):
+    user_role_ids = [role.id for role in interaction.user.roles]
+    if not any(role_id in ALLOWED_COMMAND_ROLES + HIRE_HELPER_ROLES for role_id in user_role_ids):
+        await interaction.response.send_message("❌ У вас нет прав.", ephemeral=True)
+        return
+
+    await interaction.response.send_message(
+        "📎 Отправь скриншот с аттестации в этот канал в течение **60 секунд**.\nЕсли скриншота нет — напиши `-`",
+        ephemeral=False
+    )
+
+    # Ждём скриншот от пользователя
+    def check(m):
+        return m.author.id == interaction.user.id and m.channel.id == interaction.channel_id
+
+    try:
+        msg = await bot.wait_for("message", timeout=60.0, check=check)
+        screenshot_url = msg.attachments[0].url if msg.attachments else None
+        # Удаляем сообщение со скриншотом и подсказку
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+    except asyncio.TimeoutError:
+        await interaction.channel.send("⏰ Время вышло, аттестация отменена.", delete_after=5)
+        return
+
+    guild = interaction.guild
+
+    # Считаем попытки
+    attest_attempts[игрок.id] = attest_attempts.get(игрок.id, 0) + 1
+    attempts = attest_attempts[игрок.id]
+    attempts_left = max(0, 3 - attempts + 1)
+
+    approved = вердикт.value == "approved"
+    вердикт_текст = "✅ Одобрено" if approved else "❌ Отказано"
+
+    # Пишем в канал аттестации
+    attest_ch = bot.get_channel(ATTEST_CHANNEL)
+    if attest_ch:
+        embed = discord.Embed(
+            title="📋 Аттестация",
+            color=0x57F287 if approved else 0xED4245
+        )
+        embed.add_field(name="1. Никнейм", value=игрок.mention, inline=False)
+        embed.add_field(name="2. Вердикт", value=вердикт_текст, inline=True)
+        embed.add_field(name="3. Вредоносных ПО", value=f"**{вредоносных}**", inline=True)
+        embed.add_field(name="4. Осталось попыток", value=f"**{attempts_left}/3**", inline=True)
+        embed.add_field(name="5. Провёл аттестацию", value=interaction.user.mention, inline=False)
+        embed.set_footer(text=f"ID игрока: {игрок.id}")
+        if screenshot_url:
+            embed.set_image(url=screenshot_url)
+        await attest_ch.send(embed=embed)
+
+    if approved:
+        role_remove = guild.get_role(ATTEST_ROLE_REMOVE)
+        role_add = guild.get_role(ATTEST_ROLE_ADD)
+        if role_remove and role_remove in игрок.roles:
+            await игрок.remove_roles(role_remove)
+        if role_add:
+            await игрок.add_roles(role_add)
+        attest_attempts.pop(игрок.id, None)
+
+        pass_ch = bot.get_channel(ATTEST_PASS_CHANNEL)
+        if pass_ch:
+            await pass_ch.send(f"<@&{ATTEST_PING_ROLE}> {игрок.mention} был аттестирован ✅")
+
+    await interaction.channel.send(f"✅ Аттестация для {игрок.mention} записана.", delete_after=5)
 
 
 # ─── HELPER ROLES ─────────────────────────────────────────────────────────────
@@ -2864,20 +3053,20 @@ async def check_reports(with_norm: bool, guild: discord.Guild):
     import pytz
     msk = pytz.timezone("Europe/Moscow")
     now = datetime.now(msk)
-    # Начало сегодняшнего дня в МСК → UTC
-    day_start = msk.localize(datetime(now.year, now.month, now.day, 0, 0, 0)).astimezone(timezone.utc)
+    # Начало вчерашнего дня в МСК → UTC (проверка идёт в 00:00, значит смотрим вчера)
+    yesterday = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    from datetime import timedelta
+    day_start = msk.localize(yesterday.replace(tzinfo=None) - timedelta(days=1)).astimezone(timezone.utc)
+    day_end = msk.localize(yesterday.replace(tzinfo=None)).astimezone(timezone.utc)
 
-    channel = bot.get_channel(REPORT_CHECK_CHANNEL)
     violators = []
 
     for member in guild.members:
         if member.bot:
             continue
         member_role_ids = [r.id for r in member.roles]
-        # Только штатные
         if not any(rid in member_role_ids for rid in STAFF_ROLES):
             continue
-        # Игроки в отгуле — пропускаем
         if DAYOFF_ROLE in member_role_ids:
             continue
 
@@ -2898,85 +3087,68 @@ async def check_reports(with_norm: bool, guild: discord.Guild):
         if not target_channel:
             continue
 
-        # Считаем сообщения с вложениями за сегодня
+        # Считаем вложения за вчера
         count = 0
         try:
-            async for msg in target_channel.history(limit=2000, after=day_start):
-                if msg.author.id == member.id and msg.attachments:
-                    count += len(msg.attachments)
+            async for msg in target_channel.history(limit=2000, after=day_start, before=day_end):
+                count += len(msg.attachments)
         except Exception:
             continue
 
         if not with_norm:
-            # Без нормы — просто проверяем что хоть что-то есть
             if count == 0:
                 violators.append((member, count, None))
         else:
-            # С нормой — проверяем норму
             norm = await get_member_norm(member)
             if norm is None:
                 continue
             if count < norm:
                 violators.append((member, count, norm))
 
-    # Выдаём варны/устники
-    warn_results = []
+    if not violators:
+        print(f"[check_reports] Нарушителей нет")
+        return
+
+    # Выдаём варны/устники одним сообщением в канал варнов
+    warn_lines = []
+    mute_lines = []
+
     for member, count, norm in violators:
         member_role_ids = [r.id for r in member.roles]
         warn_count = sum(1 for rid in WARN_ROLES if rid in member_role_ids)
         mute_count = sum(1 for rid in MUTE_ROLES if rid in member_role_ids)
-
-        reason = "Нет отчёта" if not with_norm else f"Не выполнена норма ({count}/{norm})"
-
-        warn_ch = bot.get_channel(WARN_ANNOUNCE_CHANNEL)
+        reason = "Нет отчёта" if not with_norm else f"норма {count}/{norm}"
 
         if warn_count >= 2:
-            # Выдаём устник
             if mute_count < len(MUTE_ROLES):
                 role_to_add = guild.get_role(MUTE_ROLES[mute_count])
                 if role_to_add:
                     await member.add_roles(role_to_add)
-                warn_results.append(f"{member.mention} — 🔇 устник ({reason})")
-                if warn_ch:
-                    embed_w = discord.Embed(title="🔇 Выдача устника", description=f"{member.mention} получил устник!", color=0xF1C40F)
-                    embed_w.add_field(name="📋 Причина", value=reason, inline=False)
-                    embed_w.set_thumbnail(url=member.display_avatar.url)
-                    await warn_ch.send(embed=embed_w)
-                await update_mute_leaderboard()
+                mute_lines.append(f"{member.mention} — 🔇 устник ({reason})")
         elif warn_count < len(WARN_ROLES):
             role_to_add = guild.get_role(WARN_ROLES[warn_count])
             if role_to_add:
                 await member.add_roles(role_to_add)
             new_warn = warn_count + 1
-            warn_results.append(f"{member.mention} — ⚠️ варн {new_warn}/3 ({reason})")
-            if warn_ch:
-                if new_warn == 1:
-                    warn_emoji, embed_color = "🟢", 0x57F287
-                elif new_warn == 2:
-                    warn_emoji, embed_color = "🟡", 0xFEE75C
-                else:
-                    warn_emoji, embed_color = "🔴", 0xED4245
-                warn_bar = warn_emoji * new_warn + "⚫" * (3 - new_warn)
-                embed_w = discord.Embed(title="⚠️ Выдача варна", description=f"{member.mention} получил варн!", color=embed_color)
-                embed_w.add_field(name=f"Варны {warn_bar} {new_warn}/3", value="", inline=False)
-                embed_w.add_field(name="📋 Причина", value=reason, inline=False)
-                embed_w.set_thumbnail(url=member.display_avatar.url)
-                await warn_ch.send(embed=embed_w)
-            await update_warn_leaderboard()
+            warn_lines.append(f"{member.mention} — ⚠️ {new_warn}/3 ({reason})")
 
-    if channel and warn_results:
+    warn_ch = bot.get_channel(WARN_ANNOUNCE_CHANNEL)
+    if warn_ch and (warn_lines or mute_lines):
         check_label = "без нормы" if not with_norm else "с нормой"
-        embed = discord.Embed(
-            title=f"📋 Результаты проверки отчётов ({check_label})",
-            description="\n".join(warn_results),
+        embed_w = discord.Embed(
+            title=f"📋 Проверка отчётов ({check_label})",
             color=0xED4245
         )
-        embed.set_footer(text=f"Проверка завершена • {now.strftime('%d.%m.%Y')}")
-        await channel.send(embed=embed)
-    elif channel:
-        await channel.send("✅ Все сдали отчёты, нарушений нет!")
+        if warn_lines:
+            embed_w.add_field(name="⚠️ Варны", value="\n".join(warn_lines), inline=False)
+        if mute_lines:
+            embed_w.add_field(name="� Устники", value="\n".join(mute_lines), inline=False)
+        embed_w.set_footer(text=now.strftime("%d.%m.%Y"))
+        await warn_ch.send(embed=embed_w)
 
-    print(f"[check_reports] Проверка завершена, нарушителей: {len(violators)}")
+    await update_warn_leaderboard()
+    await update_mute_leaderboard()
+    print(f"[check_reports] Завершено, нарушителей: {len(violators)}")
 
 
 async def daily_scheduler():
