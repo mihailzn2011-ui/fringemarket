@@ -1368,6 +1368,8 @@ async def attestation(
         "📎 Отправь скриншот с аттестации в этот канал в течение **60 секунд**.\nЕсли скриншота нет — напиши `-`",
         ephemeral=False
     )
+    # Сохраняем сообщение-подсказку чтобы удалить
+    prompt_msg = await interaction.original_response()
 
     # Ждём скриншот от пользователя
     def check(m):
@@ -1376,21 +1378,28 @@ async def attestation(
     try:
         msg = await bot.wait_for("message", timeout=60.0, check=check)
         screenshot_url = msg.attachments[0].url if msg.attachments else None
-        # Удаляем сообщение со скриншотом и подсказку
         try:
             await msg.delete()
         except Exception:
             pass
+        try:
+            await prompt_msg.delete()
+        except Exception:
+            pass
     except asyncio.TimeoutError:
+        try:
+            await prompt_msg.delete()
+        except Exception:
+            pass
         await interaction.channel.send("⏰ Время вышло, аттестация отменена.", delete_after=5)
         return
 
     guild = interaction.guild
 
-    # Считаем попытки
+    # Считаем попытки (до проверки одобрения)
     attest_attempts[игрок.id] = attest_attempts.get(игрок.id, 0) + 1
     attempts = attest_attempts[игрок.id]
-    attempts_left = max(0, 3 - attempts + 1)
+    attempts_left = max(1, 3 - attempts + 1)
 
     approved = вердикт.value == "approved"
     вердикт_текст = "✅ Одобрено" if approved else "❌ Отказано"
@@ -1423,7 +1432,7 @@ async def attestation(
 
         pass_ch = bot.get_channel(ATTEST_PASS_CHANNEL)
         if pass_ch:
-            await pass_ch.send(f"<@&{ATTEST_PING_ROLE}> {игрок.mention} был аттестирован ✅")
+            await pass_ch.send(f"forgjey_40069 <@&{ATTEST_PING_ROLE}> {игрок.mention} был аттестирован ✅")
 
     await interaction.channel.send(f"✅ Аттестация для {игрок.mention} записана.", delete_after=5)
 
