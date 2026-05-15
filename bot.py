@@ -1235,18 +1235,6 @@ async def give_promotion(interaction: discord.Interaction, игрок: discord.M
 
     # Очищаем канал отчётов игрока
     nick_lower = игрок.display_name.split("|")[0].strip().lower()
-    for cat_id in STAFF_CATEGORIES:
-        category = guild.get_channel(cat_id)
-        if not category:
-            continue
-        for ch in category.channels:
-            if nick_lower in ch.name.lower():
-                try:
-                    await ch.purge(limit=None)
-                    print(f"[give_promotion] Канал {ch.name} очищен")
-                except Exception as e:
-                    print(f"[give_promotion] Ошибка очистки канала: {e}")
-                break
 
     promo_ch = bot.get_channel(PROMOTION_CHANNEL)
     if promo_ch:
@@ -1300,21 +1288,6 @@ async def demote(interaction: discord.Interaction, игрок: discord.Member):
         moder_extra = guild.get_role(MODER_ROLE_ID)
         if moder_extra and moder_extra in игрок.roles:
             await игрок.remove_roles(moder_extra)
-
-    # Очищаем канал отчётов игрока
-    nick_lower = игрок.display_name.split("|")[0].strip().lower()
-    for cat_id in STAFF_CATEGORIES:
-        category = guild.get_channel(cat_id)
-        if not category:
-            continue
-        for ch in category.channels:
-            if nick_lower in ch.name.lower():
-                try:
-                    await ch.purge(limit=None)
-                    print(f"[demote] Канал {ch.name} очищен")
-                except Exception as e:
-                    print(f"[demote] Ошибка очистки канала: {e}")
-                break
 
     promo_ch = bot.get_channel(PROMOTION_CHANNEL)
     if promo_ch:
@@ -1379,15 +1352,10 @@ async def attestation(
         msg = await bot.wait_for("message", timeout=60.0, check=check)
         screenshot_url = msg.attachments[0].url if msg.attachments else None
         try:
-            await msg.delete()
-        except Exception:
-            pass
-        try:
             await prompt_msg.delete()
         except Exception:
             pass
-    except asyncio.TimeoutError:
-        try:
+    except asyncio.TimeoutError:        try:
             await prompt_msg.delete()
         except Exception:
             pass
@@ -1396,10 +1364,11 @@ async def attestation(
 
     guild = interaction.guild
 
-    # Считаем попытки (до проверки одобрения)
-    attest_attempts[игрок.id] = attest_attempts.get(игрок.id, 0) + 1
+    # Считаем попытки
+    prev = attest_attempts.get(игрок.id, 0)
+    attest_attempts[игрок.id] = prev + 1
     attempts = attest_attempts[игрок.id]
-    attempts_left = max(1, 3 - attempts + 1)
+    attempts_left = 3 - attempts  # 1я попытка = 2 осталось, 2я = 1, 3я = 0
 
     approved = вердикт.value == "approved"
     вердикт_текст = "✅ Одобрено" if approved else "❌ Отказано"
@@ -1414,7 +1383,7 @@ async def attestation(
         embed.add_field(name="1. Никнейм", value=игрок.mention, inline=False)
         embed.add_field(name="2. Вердикт", value=вердикт_текст, inline=True)
         embed.add_field(name="3. Вредоносных ПО", value=f"**{вредоносных}**", inline=True)
-        embed.add_field(name="4. Осталось попыток", value=f"**{attempts_left}/3**", inline=True)
+        embed.add_field(name="4. Осталось попыток", value=f"**{max(0, attempts_left)}/3**", inline=True)
         embed.add_field(name="5. Провёл аттестацию", value=interaction.user.mention, inline=False)
         embed.set_footer(text=f"ID игрока: {игрок.id}")
         if screenshot_url:
@@ -1432,7 +1401,7 @@ async def attestation(
 
         pass_ch = bot.get_channel(ATTEST_PASS_CHANNEL)
         if pass_ch:
-            await pass_ch.send(f"forgjey_40069 <@&{ATTEST_PING_ROLE}> {игрок.mention} был аттестирован ✅")
+            await pass_ch.send(f"<@{interaction.user.id}> <@&{ATTEST_PING_ROLE}> {игрок.mention} был аттестирован ✅")
 
     await interaction.channel.send(f"✅ Аттестация для {игрок.mention} записана.", delete_after=5)
 
