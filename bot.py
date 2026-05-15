@@ -1355,7 +1355,8 @@ async def attestation(
             await prompt_msg.delete()
         except Exception:
             pass
-    except asyncio.TimeoutError:        try:
+    except asyncio.TimeoutError:
+        try:
             await prompt_msg.delete()
         except Exception:
             pass
