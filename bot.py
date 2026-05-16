@@ -3,8 +3,8 @@ import asyncio
 import sys
 import os
 
-# Берём токен из переменной DICORD_TOKEN (как у тебя в Railway)
-TOKEN = os.getenv('DICORD_TOKEN')
+# Правильное название: DISCORD_TOKEN
+TOKEN = os.getenv('DISCORD_TOKEN')
 
 intents = discord.Intents.default()
 intents.members = True
@@ -64,7 +64,7 @@ async def on_ready():
 
 if __name__ == "__main__":
     if not TOKEN:
-        log("❌ Токен не найден! Переменная DICORD_TOKEN не установлена в Railway")
+        log("❌ Токен не найден! Переменная DISCORD_TOKEN не установлена в Railway")
         sys.exit(1)
     
     log("🚀 ЗАПУСК БОТА ОЧИСТКИ")
